@@ -65,7 +65,11 @@ counts with read-only SQLite access. A changed checksum requires investigation b
 ## Alembic
 
 The baseline revision is `20260712_0001`. Revision `20260712_0002` adds imported-message identity
-and provenance. It does not introduce the broader target-domain tables.
+and provenance. Revision `20260712_0003` adds deterministic classification evidence. These do not
+introduce recruiter or interview domain tables.
+
+The live runtime database remains at its currently deployed revision until an explicitly approved
+copy rehearsal and live migration. Feature development and tests never upgrade `data/jobs.db`.
 
 Create and upgrade a disposable database:
 

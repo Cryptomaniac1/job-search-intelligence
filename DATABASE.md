@@ -44,10 +44,26 @@ provider-scoped message:
 The unique identity prevents duplicate message and job creation. Later repeat attempts are counted
 as `already_imported` in their `email_imports` summary and do not overwrite the provenance row.
 
+### `email_classifications`
+
+Added by revision `20260712_0003`. Stores additive, immutable classifier evidence keyed by stable
+message identity and classifier version:
+
+- canonical classification;
+- confidence from 0.0 to 1.0;
+- deterministic classifier version;
+- JSON reasons explaining matched signals;
+- optional existing job linkage;
+- creation timestamp.
+
+The unique `(message_identity, classifier_version)` constraint permits future classifier versions
+without overwriting earlier evidence. Sprint 5 performs no historical backfill.
+
 ## Migration history
 
 - `20260712_0001`: baseline representation of `jobs` and `email_imports`.
 - `20260712_0002`: additive imported-message identity and provenance table.
+- `20260712_0003`: deterministic email classification evidence.
 
 Application startup does not run Alembic. See `DEVELOPER_GUIDE.md` for safe temporary upgrade and
 existing-database stamping procedures.

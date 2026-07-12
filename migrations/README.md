@@ -2,6 +2,7 @@
 
 The baseline revision models `jobs` and `email_imports`. Revision `20260712_0002` adds the narrowly
 scoped `imported_messages` provenance table.
+Revision `20260712_0003` adds versioned deterministic `email_classifications` evidence.
 
 - The default target is `data/jobs.db`; `JOBS_DB_PATH` and then `DATABASE_PATH` override it.
 - Use an override with a disposable database for development and automated verification.

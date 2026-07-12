@@ -26,7 +26,7 @@ from backend.app.database.paths import (
 LIVE_DATABASE = DEFAULT_DATABASE_PATH
 PROTECTED_DATABASES = {DEFAULT_DATABASE_PATH, LEGACY_DATABASE_PATH}
 BASELINE_REVISION = "20260712_0001"
-HEAD_REVISION = "20260712_0002"
+HEAD_REVISION = "20260712_0003"
 
 EXPECTED_COLUMNS = {
     "jobs": {
@@ -263,7 +263,13 @@ def _check_tables_and_indexes(
     missing_tables = {"jobs", "email_imports"} - tables
     if missing_tables:
         errors.append(f"missing tables: {', '.join(sorted(missing_tables))}")
-    allowed = {"jobs", "email_imports", "imported_messages", "alembic_version"}
+    allowed = {
+        "jobs",
+        "email_imports",
+        "imported_messages",
+        "email_classifications",
+        "alembic_version",
+    }
     unexpected_tables = sorted(tables - allowed)
     if unexpected_tables:
         warnings.append(f"unexpected tables: {', '.join(unexpected_tables)}")
@@ -356,7 +362,8 @@ def rehearse(source: Path, output_directory: Path) -> dict[str, Any]:
     copy_path, metadata_path = create_backup(source, output_directory)
     before = collect_evidence(copy_path)
     before_digests = {table: table_digest(copy_path, table) for table in EXPECTED_COLUMNS}
-    run_alembic(copy_path, "stamp", BASELINE_REVISION)
+    if before.alembic_revision is None:
+        run_alembic(copy_path, "stamp", BASELINE_REVISION)
     run_alembic(copy_path, "upgrade", HEAD_REVISION)
     run_alembic(copy_path, "upgrade", HEAD_REVISION)
     upgraded = collect_evidence(copy_path)
@@ -379,7 +386,8 @@ def _validate_upgrade(
     digests: dict[str, str],
     evidence: DatabaseEvidence,
 ) -> None:
-    if evidence.alembic_revision != HEAD_REVISION or "imported_messages" not in evidence.tables:
+    required_tables = {"imported_messages", "email_classifications"}
+    if evidence.alembic_revision != HEAD_REVISION or not required_tables.issubset(evidence.tables):
         raise RuntimeError("Upgrade did not reach the expected revision and schema")
     for table in EXPECTED_COLUMNS:
         if (
@@ -414,7 +422,10 @@ def _validate_rollback(
     digests: dict[str, str],
     evidence: DatabaseEvidence,
 ) -> None:
-    if evidence.alembic_revision != BASELINE_REVISION or "imported_messages" in evidence.tables:
+    removed_tables = {"imported_messages", "email_classifications"}
+    if evidence.alembic_revision != BASELINE_REVISION or removed_tables.intersection(
+        evidence.tables
+    ):
         raise RuntimeError("Rollback did not restore the baseline schema")
     for table in EXPECTED_COLUMNS:
         if (

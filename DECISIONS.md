@@ -68,3 +68,19 @@ attempts add an `email_imports` summary but do not overwrite or duplicate the me
 
 Decision: imported historical jobs return HTTP 409 from the existing delete route instead of being
 hard-deleted. Historical cleanup requires a separate reviewed migration or archival design.
+
+---
+
+## Deterministic classification evidence
+
+Decision: every newly accepted imported message receives exactly one canonical classification from
+the versioned deterministic classifier. Classification uses normalized subject, sender, and body
+signals and records confidence plus human-readable reasons.
+
+Reason: Recruiter CRM and interview modeling need stable, reproducible business-event evidence
+before they create domain objects. LLMs, embeddings, and probabilistic second-stage classification
+are explicitly outside Sprint 5.
+
+Decision: classification evidence is additive and versioned. New classifier versions append
+evidence rather than replacing prior classifications. No historical records are automatically
+backfilled or modified.

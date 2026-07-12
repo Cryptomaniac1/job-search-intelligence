@@ -33,6 +33,9 @@ Existing response fields remain unchanged. Sprint 1 adds:
 - `failed`
 
 Repeated messages increment `already_imported` and do not create another job or provenance row.
+Every newly accepted MBOX message receives exactly one deterministic classification. Only
+`APPLICATION_CONFIRMATION` retains the existing job match/create workflow; other classifications
+create evidence without creating recruiter, interview, or job records.
 
 ### `POST /imports/yahoo`
 
@@ -42,6 +45,12 @@ additive counters described above are returned.
 ### `GET /imports`
 
 Lists import-attempt summaries. Repeat attempts are intentionally visible.
+
+### `GET /email-classifications`
+
+Lists classification evidence with optional `classification`, `provider`, and `limit` filters.
+Each record includes stable message identity, optional job ID, canonical type, confidence,
+classifier version, explainable reasons, and creation time.
 
 ## Analytics
 
