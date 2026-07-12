@@ -2,9 +2,34 @@
 
 ## Status
 
-This is a reviewed procedure, not authorization to migrate `data/jobs.db`. Sprint 2 executed
-backup, preflight, upgrade, import, and rollback rehearsals only against SQLite-safe copies. The
-live migration commands below are marked **NOT EXECUTED** and require separate explicit approval.
+This is the reviewed live-database migration procedure. Sprint 5.5 used it on 2026-07-12 to
+upgrade `data/jobs.db` from `20260712_0002` to `20260712_0003` after an explicit approval gate.
+The procedure remains guidance only for future migrations and never grants authorization by
+itself.
+
+## Sprint 5.5 deployment record
+
+- Migration date: 2026-07-12.
+- Source revision: `20260712_0002`.
+- Result revision: `20260712_0003`.
+- Verified backup:
+  `/Users/solovatmacpro16/Documents/job-intelligence-backups/sprint-5-5/jobs-20260712T210406Z.sqlite3`.
+- Backup metadata:
+  `/Users/solovatmacpro16/Documents/job-intelligence-backups/sprint-5-5/jobs-20260712T210406Z.metadata.json`.
+- Pre-migration and backup SHA-256:
+  `3866fb03c9fa84c43c0aff0707fd9436c542fbe828339b3e669cb55a90343a08`.
+- Post-migration SHA-256:
+  `6ced7c832e04c00216b5da2784f3296a4b6586c79befac094d6a8ccf0af94a40`.
+- Preserved counts: 7,718 `jobs`, four `email_imports`, zero `imported_messages`.
+- New table count: zero `email_classifications`.
+- The historical logical digests for `jobs`, `email_imports`, and `imported_messages` were
+  unchanged.
+- Schema, unique constraint, indexes, foreign keys, `integrity_check`, and `foreign_key_check`
+  passed.
+- Health, dashboard, and representative read-only job-list smoke tests returned HTTP 200.
+- No import, backfill, cleanup, downgrade, or historical-row update was performed.
+- Deviation: the first smoke-test port bind was denied by the execution sandbox; the same test
+  passed after localhost permission was granted. This did not affect the database.
 
 ## Safety invariants
 
@@ -74,11 +99,11 @@ Live deployment requires explicit approval after reviewing:
 - unchanged live checksum after all rehearsal work;
 - maintenance window and recovery owner.
 
-## 5. Live migration procedure — NOT EXECUTED
+## 5. Historical live migration procedure
 
-The following commands were **not executed against `backend/jobs.db` in Sprint 2**. The readiness
-tool intentionally rejects that path, so live deployment uses direct Alembic only after explicit
-approval and a verified backup.
+The block below is the original Sprint 2 template and intentionally retains its `NOT EXECUTED`
+labels. Sprint 3 later established `20260712_0002` through a separately approved live procedure.
+Do not rerun this archived template against the current live database.
 
 ```bash
 # NOT EXECUTED — stop the backend and import processes first.

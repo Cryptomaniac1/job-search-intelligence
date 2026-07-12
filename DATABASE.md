@@ -65,6 +65,12 @@ without overwriting earlier evidence. Sprint 5 performs no historical backfill.
 - `20260712_0002`: additive imported-message identity and provenance table.
 - `20260712_0003`: deterministic email classification evidence.
 
+The live runtime database was upgraded from `20260712_0002` to `20260712_0003` on 2026-07-12
+through the approval-gated live-migration workflow. The migration preserved 7,718 `jobs` rows,
+four `email_imports` rows, zero `imported_messages` rows, and the logical digests of all three
+existing tables. `email_classifications` was created with zero rows. No historical backfill or
+email import was run.
+
 Application startup does not run Alembic. See `DEVELOPER_GUIDE.md` for safe temporary upgrade and
 existing-database stamping procedures.
 

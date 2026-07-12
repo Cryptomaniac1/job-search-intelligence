@@ -20,10 +20,12 @@ the product and architecture documents remain part of the roadmap unless explici
 - Preservation-first email-to-job merge behavior and imported-record deletion protection.
 - Read-only live-database preflight, SQLite-safe backup, copy-only migration rehearsal, rollback
   verification, and duplicate-candidate reporting.
-- Historical database at Alembic revision `20260712_0002`, externalized to ignored runtime path
+- Historical database at Alembic revision `20260712_0003`, externalized to ignored runtime path
   `data/jobs.db` with canonical environment-variable overrides.
 - Deterministic, versioned, provider-agnostic email classification engine with explainable reasons
   and additive classification evidence persistence.
+- Approval-gated Sprint 5.5 live migration completed with preserved historical row counts and
+  logical digests; `email_classifications` began with zero rows.
 
 ## Prototype
 
@@ -48,8 +50,6 @@ requirements or production reliability goals.
 
 - Live Gmail API synchronization.
 - Live Yahoo, Hotmail, and other IMAP synchronization.
-- Deploy classification schema revision `20260712_0003` through the approved copy-rehearsal and
-  live-migration workflow; no historical backfill is planned.
 - Recruiter CRM and recruiter relationship scoring.
 - First-class applications, emails, companies, interviews, resumes, and offers.
 - Resume intelligence and automatic recommendations.
