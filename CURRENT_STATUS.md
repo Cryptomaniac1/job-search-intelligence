@@ -18,6 +18,8 @@ the product and architecture documents remain part of the roadmap unless explici
 - Stable provider-scoped imported-message identity with deterministic SHA-256 fallback.
 - Immutable imported-message provenance and repeat-import counters.
 - Preservation-first email-to-job merge behavior and imported-record deletion protection.
+- Read-only live-database preflight, SQLite-safe backup, copy-only migration rehearsal, rollback
+  verification, and duplicate-candidate reporting.
 
 ## Prototype
 
@@ -35,6 +37,7 @@ requirements or production reliability goals.
 - Progressive extraction of the backend monolith into the `backend/app` package.
 - Domain-model and migration design beyond the current two-table baseline.
 - Review and separately plan remediation for pre-Sprint-1 duplicate historical records.
+- Obtain an explicit deployment approval before migrating the historical database.
 
 ## Planned
 

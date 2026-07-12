@@ -79,6 +79,42 @@ The `20260712_0002` upgrade is additive, but it must still be run only after bac
 verification. It creates `imported_messages`; it does not backfill, merge, or delete historical
 rows.
 
+## Migration-readiness commands
+
+Run the read-only live preflight:
+
+```bash
+python -m backend.app.database.migration_readiness preflight backend/jobs.db
+```
+
+Create a SQLite-safe backup outside the repository:
+
+```bash
+python -m backend.app.database.migration_readiness \
+  backup backend/jobs.db /absolute/external/backup-directory
+```
+
+Run stamp, upgrade, rerun, validation, and rollback against a generated copy only:
+
+```bash
+python -m backend.app.database.migration_readiness \
+  rehearse backend/jobs.db /absolute/external/rehearsal-directory
+```
+
+Generate the full duplicate-candidate report outside the repository:
+
+```bash
+python -m backend.app.database.migration_readiness \
+  duplicate-report backend/jobs.db /absolute/external/duplicate-candidates.csv
+```
+
+Backup metadata records checksum, size, schema, indexes, row counts, integrity, foreign-key
+results, Alembic state, and UTC creation/check time. A SQLite online backup may have a different
+file checksum from its source because page layout can change; preservation is verified using table
+row counts and deterministic logical row digests.
+
+See `docs/LIVE_DATABASE_MIGRATION_RUNBOOK.md` before proposing any live deployment.
+
 ## Import identity and merge policy
 
 Message identity is provider-scoped. RFC Message-ID values are Unicode-normalized, case-folded,

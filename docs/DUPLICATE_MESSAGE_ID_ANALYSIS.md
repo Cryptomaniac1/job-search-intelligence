@@ -40,3 +40,23 @@ These are evidence-based hypotheses, not automatic cleanup criteria.
 
 Do not use Message-ID alone to delete existing rows. Different job IDs and the 136 differing-core
 groups mean blind cleanup could destroy distinct historical facts.
+
+## Sprint 2 field-level report
+
+The migration-readiness command now produces one CSV row per duplicate Message-ID group with both
+job IDs, account, source, company, title, applied date, status, ATS, requisition ID, confidence,
+differing fields, and a recommended review category:
+
+```bash
+python -m backend.app.database.migration_readiness duplicate-report \
+  backend/jobs.db /absolute/external/duplicate-message-id-candidates.csv
+```
+
+The Sprint 2 read-only run produced all 1,150 groups outside the repository. Classification counts
+were:
+
+- likely exact duplicate: 950;
+- probable duplicate needing review: 0;
+- conflicting record requiring manual review: 200.
+
+Categories are triage recommendations only. They do not authorize automated cleanup.

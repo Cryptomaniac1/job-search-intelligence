@@ -43,6 +43,22 @@ as `already_imported` in their `email_imports` summary and do not overwrite the 
 Application startup does not run Alembic. See `DEVELOPER_GUIDE.md` for safe temporary upgrade and
 existing-database stamping procedures.
 
+## Migration readiness
+
+`backend.app.database.migration_readiness` provides protected operational commands:
+
+- `preflight` opens SQLite in read-only and query-only modes and validates schema, columns,
+  indexes, row readability, integrity, foreign keys, and Alembic state.
+- `backup` uses SQLite's online backup API and writes the database plus JSON evidence outside the
+  repository.
+- `rehearse` backs up, stamps, upgrades twice, validates row digests and constraints, downgrades,
+  and validates the baseline again using only the copy.
+- `duplicate-report` writes a field-level review CSV without changing source records.
+
+All Alembic operations in the readiness tool reject the resolved historical database path.
+Automated tests use only temporary databases. The live database remains unversioned and
+baseline-compatible until a separately approved deployment.
+
 ## Target architecture
 
 Application, Email, Recruiter, Company, Job, Interview, Resume, and Offer are target domain
