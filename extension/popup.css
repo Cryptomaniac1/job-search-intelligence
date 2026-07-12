@@ -1,0 +1,12 @@
+
+body{width:360px;padding:14px;font-family:Arial,sans-serif;color:#1d2226}
+h1{font-size:18px;margin:0 0 14px}
+label{display:block;font-size:13px;margin-bottom:12px}
+input{width:100%;box-sizing:border-box;margin-top:5px;padding:8px;border:1px solid #bbb;border-radius:6px}
+.buttons{display:flex;gap:8px}
+button{flex:1;padding:9px;border:0;border-radius:7px;background:#0a66c2;color:#fff;font-weight:700;cursor:pointer}
+button.secondary{background:#667085}
+button.wide{width:100%;margin-top:8px;background:#e8f1fb;color:#0a66c2}
+#status,#summary{margin-top:12px;font-size:12px;line-height:1.4}
+.progress{height:8px;background:#e6e8eb;border-radius:999px;margin-top:8px;overflow:hidden}
+#bar{width:0%;height:100%;background:#0a66c2;transition:width .2s}
