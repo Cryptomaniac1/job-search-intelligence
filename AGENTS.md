@@ -109,3 +109,56 @@ When documents conflict, follow this order:
 
 `FUTURE_ARCHITECTURE.md` is exploratory and is not approved for implementation unless the task explicitly says otherwise.
 
+## Git and Sprint Completion Rules
+
+For every sprint:
+
+1. Inspect repository state before making changes:
+   - `git status`
+   - `git branch --show-current`
+   - `git remote -v`
+
+2. Do not overwrite, discard, reset, stash, or commit pre-existing unrelated changes without explicit approval.
+
+3. Never commit:
+   - `backend/jobs.db`
+   - virtual environments
+   - `.env` files
+   - credentials, tokens, or secrets
+   - cache directories
+   - temporary exports or test databases
+   - operating-system metadata
+
+4. Before staging:
+   - review `git diff`
+   - review untracked files
+   - confirm `.gitignore` protects local and sensitive files
+
+5. Stage only files belonging to the current sprint unless explicitly instructed otherwise.
+
+6. Before committing:
+   - run all sprint verification commands
+   - run `git diff --staged`
+   - summarize exactly what will be committed
+   - confirm the historical database checksum is unchanged when database protection applies
+
+7. Do not create a commit or push to GitHub unless the task explicitly authorizes it.
+
+8. When commit authorization is provided:
+   - create one focused commit for the sprint
+   - use the requested commit message
+   - do not amend unrelated commits
+   - do not force-push
+
+9. When push authorization is provided:
+   - verify the remote and branch
+   - push the current branch to `origin`
+   - confirm the local branch is synchronized with GitHub
+
+10. At sprint completion, report:
+    - branch name
+    - files changed
+    - verification results
+    - commit hash, if committed
+    - push result, if pushed
+    - remaining uncommitted or unrelated changes

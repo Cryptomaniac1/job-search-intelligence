@@ -7,6 +7,8 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from fastapi.testclient import TestClient
 
 
@@ -17,6 +19,7 @@ def isolated_app(
     """Load the legacy app against a new temporary database."""
     database_path = tmp_path / "test-jobs.db"
     monkeypatch.setenv("JOBS_DB_PATH", str(database_path))
+    command.upgrade(Config("alembic.ini"), "head")
     sys.modules.pop("backend.main", None)
 
     module = importlib.import_module("backend.main")

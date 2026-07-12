@@ -15,6 +15,9 @@ the product and architecture documents remain part of the roadmap unless explici
 - Local dashboard and static assets.
 - Sprint 0 package skeleton, isolated Pytest suite, linting, formatting, typing, and Alembic
   baseline infrastructure.
+- Stable provider-scoped imported-message identity with deterministic SHA-256 fallback.
+- Immutable imported-message provenance and repeat-import counters.
+- Preservation-first email-to-job merge behavior and imported-record deletion protection.
 
 ## Prototype
 
@@ -28,10 +31,10 @@ requirements or production reliability goals.
 
 ## In Progress
 
-- Safe, idempotent email-import design and historical event preservation.
 - Regression coverage expansion for import parsing, matching, and analytics.
 - Progressive extraction of the backend monolith into the `backend/app` package.
 - Domain-model and migration design beyond the current two-table baseline.
+- Review and separately plan remediation for pre-Sprint-1 duplicate historical records.
 
 ## Planned
 
