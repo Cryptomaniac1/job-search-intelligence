@@ -1,0 +1,11 @@
+{
+  "records": [
+    {
+      "company": "Sanitized Example",
+      "title": "Technical Program Manager",
+      "applied_at": "2026-01-01T12:00:00",
+      "job_id": "yahoo-sprint2-job",
+      "confirmation_message_id": "yahoo-sprint2@example.com"
+    }
+  ]
+}
