@@ -1,14 +1,34 @@
-# Job Intelligence 3.1 — Career Dashboard
+# Job Search Intelligence
 
-## Install
+An AI-powered personal job search platform designed to manage thousands of job applications across multiple email accounts, classify recruiter communications, analyze interview pipelines, and automate repetitive job-search tasks.
 
-```bash
-cd ~/Downloads
-unzip job_intelligence_v3_1.zip
-cp ~/Downloads/Linkedin_Scanner_v2/backend/jobs.db ~/Downloads/job_intelligence_v3_1/backend/jobs.db
-cd ~/Downloads/job_intelligence_v3_1
-chmod +x start_backend.sh
-./start_backend.sh
-```
+## Goals
 
-Open `http://127.0.0.1:8002`.
+- Centralize all job search activity
+- Automatically classify recruiter emails
+- Track applications and interview stages
+- Generate analytics
+- Improve recruiter response rate
+- Automate repetitive workflows
+- Provide AI-assisted career guidance
+
+---
+
+## Current Stack
+
+Backend
+- Python 3.12
+- FastAPI
+- SQLite
+
+Sources
+- Gmail
+- Yahoo
+- Hotmail
+
+Future
+- LinkedIn automation
+- Browser extension
+- Recruiter CRM
+- AI assistant
+- Dashboard

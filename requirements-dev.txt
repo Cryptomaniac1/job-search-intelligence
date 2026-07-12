@@ -1,0 +1,8 @@
+-r backend/requirements.txt
+alembic==1.14.1
+black==24.10.0
+httpx==0.28.1
+mypy==1.14.1
+pre-commit==4.0.1
+pytest==8.3.4
+ruff==0.9.2

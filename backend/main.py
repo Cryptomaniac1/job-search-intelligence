@@ -5,6 +5,7 @@ import csv
 import io
 import json
 import mailbox
+import os
 import re
 import sqlite3
 import tempfile
@@ -23,7 +24,7 @@ from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, create_e
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "jobs.db"
+DB_PATH = Path(os.environ.get("JOBS_DB_PATH", BASE_DIR / "jobs.db")).resolve()
 
 engine = create_engine(
     f"sqlite:///{DB_PATH}",
