@@ -27,9 +27,15 @@ try:
         initialize_database_if_missing,
         resolve_database_path,
     )
+    from backend.app.services.email_classification import (
+        ClassificationResult,
+        EmailType,
+        classify_email,
+    )
     from backend.app.services.import_identity import stable_message_identity
 except ModuleNotFoundError:  # Supports the existing `cd backend && uvicorn main:app` command.
     from app.database.paths import initialize_database_if_missing, resolve_database_path
+    from app.services.email_classification import ClassificationResult, EmailType, classify_email
     from app.services.import_identity import stable_message_identity
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -110,6 +116,19 @@ class ImportedMessage(ProvenanceBase):
     job_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     outcome: Mapped[str] = mapped_column(String(20))
     error: Mapped[str] = mapped_column(Text, default="")
+
+
+class EmailClassification(ProvenanceBase):
+    __tablename__ = "email_classifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    message_identity: Mapped[str] = mapped_column(String(67))
+    job_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    classification: Mapped[str] = mapped_column(String(50))
+    confidence: Mapped[float] = mapped_column(Float)
+    classifier_version: Mapped[str] = mapped_column(String(50))
+    reason_json: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 Base.metadata.create_all(engine)
 
@@ -555,6 +574,25 @@ def record_imported_message(
         )
     )
 
+
+def record_email_classification(
+    session: Session,
+    *,
+    identity: str,
+    job_id: Optional[int],
+    result: ClassificationResult,
+) -> None:
+    session.add(
+        EmailClassification(
+            message_identity=identity,
+            job_id=job_id,
+            classification=result.classification.value,
+            confidence=result.confidence,
+            classifier_version=result.classifier_version,
+            reason_json=json.dumps(list(result.reasons), separators=(",", ":")),
+        )
+    )
+
 @app.get("/health")
 def health():
     return {"ok": True, "version": "2.0.0"}
@@ -701,13 +739,14 @@ async def import_mbox(
                 sender = decode_mime(message.get("From"))
                 body = message_body(message)
 
-                if not is_confirmation(subject, body):
-                    continue
-
-                confirmations_found += 1
                 applied_at = parse_email_date(message.get("Date"))
                 message_id = decode_mime(message.get("Message-ID"))
                 combined = f"{subject} {body}"
+                classification = classify_email(subject=subject, sender=sender, body=body)
+                is_application = (
+                    classification.classification == EmailType.APPLICATION_CONFIRMATION
+                )
+                confirmations_found += int(is_application)
 
                 identity = stable_message_identity(
                     provider=mailbox_name,
@@ -722,46 +761,40 @@ async def import_mbox(
                     continue
 
                 try:
-                    company, title = extract_company_and_title(subject, body, sender)
-                    urls = extract_urls(combined)
-                    job_url = next(
-                        (
-                            url
-                            for url in urls
-                            if any(
-                                marker in url.lower()
-                                for marker in [
-                                    "linkedin.com/jobs/",
-                                    "greenhouse.io",
-                                    "lever.co",
-                                    "myworkdayjobs.com",
-                                    "ashbyhq.com",
-                                    "smartrecruiters.com",
-                                    "icims.com",
-                                    "jobvite.com",
-                                ]
-                            )
-                        ),
-                        urls[0] if urls else "",
-                    )
-
-                    job_id = extract_job_id(combined)
-                    requisition_id = extract_requisition_id(combined)
-                    ats_platform = infer_ats(combined)
-
-                    job, score, matched = match_or_create_application(
-                        session,
-                        mailbox_name=mailbox_name,
-                        company=company,
-                        title=title,
-                        applied_at=applied_at,
-                        job_url=job_url,
-                        job_id=job_id,
-                        requisition_id=requisition_id,
-                        ats_platform=ats_platform,
-                        message_id=message_id,
-                        stable_identity=identity,
-                    )
+                    job: Optional[Job] = None
+                    score = 0.0
+                    matched = False
+                    company = ""
+                    title = ""
+                    ats_platform = ""
+                    requisition_id = ""
+                    if is_application:
+                        company, title = extract_company_and_title(subject, body, sender)
+                        urls = extract_urls(combined)
+                        job_url = next(
+                            (
+                                url
+                                for url in urls
+                                if any(domain in url.lower() for domain in ATS_DOMAINS)
+                            ),
+                            urls[0] if urls else "",
+                        )
+                        external_job_id = extract_job_id(combined)
+                        requisition_id = extract_requisition_id(combined)
+                        ats_platform = infer_ats(combined)
+                        job, score, matched = match_or_create_application(
+                            session,
+                            mailbox_name=mailbox_name,
+                            company=company,
+                            title=title,
+                            applied_at=applied_at,
+                            job_url=job_url,
+                            job_id=external_job_id,
+                            requisition_id=requisition_id,
+                            ats_platform=ats_platform,
+                            message_id=message_id,
+                            stable_identity=identity,
+                        )
                     session.flush()
                     record_imported_message(
                         session,
@@ -769,8 +802,14 @@ async def import_mbox(
                         source_import_id=import_record.id,
                         identity=identity,
                         original_message_id=message_id,
-                        job_id=job.id,
-                        outcome="matched" if matched else "unmatched",
+                        job_id=job.id if job else None,
+                        outcome=("matched" if matched else "unmatched") if job else "classified",
+                    )
+                    record_email_classification(
+                        session,
+                        identity=identity,
+                        job_id=job.id if job else None,
+                        result=classification,
                     )
                     newly_imported += 1
                 except Exception as exc:
@@ -778,12 +817,11 @@ async def import_mbox(
                     failed += 1
                     raise HTTPException(422, f"Email import failed: {exc}") from exc
 
-                if matched:
-                    matched_jobs += 1
-                else:
-                    unmatched_jobs += 1
+                if is_application:
+                    matched_jobs += int(matched)
+                    unmatched_jobs += int(not matched)
 
-                if len(preview) < 100:
+                if is_application and job and len(preview) < 100:
                     preview.append(
                         {
                             "company": company,
@@ -841,6 +879,11 @@ def import_yahoo(payload: YahooImportPayload):
         session.flush()
 
         for record in payload.records:
+            classification = classify_email(
+                subject="Application confirmation",
+                sender=record.company,
+                body="Application received through Yahoo structured import",
+            )
             identity = stable_message_identity(
                 provider="yahoo",
                 message_id=record.confirmation_message_id,
@@ -882,6 +925,12 @@ def import_yahoo(payload: YahooImportPayload):
                 original_message_id=record.confirmation_message_id,
                 job_id=job.id,
                 outcome="matched" if was_matched else "unmatched",
+            )
+            record_email_classification(
+                session,
+                identity=identity,
+                job_id=job.id,
+                result=classification,
             )
             imported += 1
             matched += int(was_matched)
@@ -925,6 +974,37 @@ def list_imports():
             "confirmations_found": record.confirmations_found,
             "matched_jobs": record.matched_jobs,
             "unmatched_jobs": record.unmatched_jobs,
+        }
+        for record in records
+    ]
+
+
+@app.get("/email-classifications")
+def list_email_classifications(
+    classification: Optional[str] = None,
+    provider: Optional[str] = None,
+    limit: int = Query(default=500, ge=1, le=5000),
+):
+    query = select(EmailClassification).order_by(EmailClassification.id.desc()).limit(limit)
+    if classification:
+        query = query.where(EmailClassification.classification == classification.upper())
+    if provider:
+        query = query.join(
+            ImportedMessage,
+            ImportedMessage.stable_message_identity == EmailClassification.message_identity,
+        ).where(ImportedMessage.provider == provider.lower())
+    with Session(engine) as session:
+        records = list(session.scalars(query))
+    return [
+        {
+            "id": record.id,
+            "message_identity": record.message_identity,
+            "job_id": record.job_id,
+            "classification": record.classification,
+            "confidence": record.confidence,
+            "classifier_version": record.classifier_version,
+            "reasons": json.loads(record.reason_json),
+            "created_at": record.created_at.isoformat(),
         }
         for record in records
     ]

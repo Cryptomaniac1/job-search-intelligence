@@ -59,6 +59,7 @@ def test_repeated_mbox_import_is_idempotent_and_auditable(
     assert second["already_imported"] == 1
     assert table_count(database_path, "jobs") == 1
     assert table_count(database_path, "imported_messages") == 1
+    assert table_count(database_path, "email_classifications") == 1
     assert table_count(database_path, "email_imports") == 2
 
 
@@ -88,6 +89,7 @@ def test_accounts_remain_separate_for_the_same_message_id(
     assert gmail["newly_imported"] == 1
     assert hotmail["newly_imported"] == 1
     assert table_count(database_path, "jobs") == 2
+    assert table_count(database_path, "email_classifications") == 2
     with sqlite3.connect(database_path) as connection:
         accounts = {row[0] for row in connection.execute("SELECT email_account FROM jobs")}
     assert accounts == {"gmail", "hotmail"}
@@ -123,6 +125,7 @@ def test_yahoo_repeat_import_and_provenance(
                FROM imported_messages"""
         ).fetchone()
     assert provenance == ("yahoo", "yahoo-message-1@example.com", "unmatched", 1)
+    assert table_count(database_path, "email_classifications") == 1
 
 
 def test_matched_import_preserves_stronger_historical_fields(
@@ -159,17 +162,42 @@ def test_matched_import_preserves_stronger_historical_fields(
     assert preserved["email_account"] == "gmail"
 
 
-def test_blank_message_is_ignored_without_provenance(
+def test_blank_message_is_preserved_as_unknown_evidence_without_a_job(
     isolated_app: tuple[TestClient, Path],
 ) -> None:
     client, database_path = isolated_app
 
     result = upload_mbox(client, "gmail", mbox_message(subject="", body=""))
 
-    assert result["newly_imported"] == 0
+    assert result["newly_imported"] == 1
     assert result["failed"] == 0
     assert table_count(database_path, "jobs") == 0
-    assert table_count(database_path, "imported_messages") == 0
+    assert table_count(database_path, "imported_messages") == 1
+    assert table_count(database_path, "email_classifications") == 1
+
+
+def test_non_confirmation_is_classified_without_creating_a_job(
+    isolated_app: tuple[TestClient, Path],
+) -> None:
+    client, database_path = isolated_app
+    content = mbox_message(
+        message_id="interview@example.com",
+        subject="Interview invitation",
+        body="Please schedule your interview.",
+    )
+
+    result = upload_mbox(client, "gmail", content)
+    classifications = client.get(
+        "/email-classifications",
+        params={"classification": "interview_invitation", "provider": "gmail"},
+    ).json()
+
+    assert result["newly_imported"] == 1
+    assert result["confirmations_found"] == 0
+    assert table_count(database_path, "jobs") == 0
+    assert classifications[0]["classification"] == "INTERVIEW_INVITATION"
+    assert classifications[0]["classifier_version"] == "deterministic-v1"
+    assert classifications[0]["reasons"]
 
 
 def test_imported_job_cannot_be_hard_deleted(

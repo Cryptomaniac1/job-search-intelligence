@@ -27,8 +27,14 @@ def test_baseline_migration_builds_current_two_table_schema(tmp_path: Path) -> N
         }
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()
 
-    assert tables == {"alembic_version", "email_imports", "imported_messages", "jobs"}
-    assert revision == ("20260712_0002",)
+    assert tables == {
+        "alembic_version",
+        "email_classifications",
+        "email_imports",
+        "imported_messages",
+        "jobs",
+    }
+    assert revision == ("20260712_0003",)
 
 
 def test_upgrade_from_baseline_preserves_existing_rows(tmp_path: Path) -> None:
@@ -93,9 +99,10 @@ def test_upgrade_from_baseline_preserves_existing_rows(tmp_path: Path) -> None:
             connection.execute("SELECT COUNT(*) FROM jobs").fetchone(),
             connection.execute("SELECT COUNT(*) FROM email_imports").fetchone(),
             connection.execute("SELECT COUNT(*) FROM imported_messages").fetchone(),
+            connection.execute("SELECT COUNT(*) FROM email_classifications").fetchone(),
         )
 
-    assert counts == ((1,), (1,), (0,))
+    assert counts == ((1,), (1,), (0,), (0,))
 
 
 def test_alembic_uses_database_path_secondary_override(tmp_path: Path) -> None:
@@ -114,4 +121,46 @@ def test_alembic_uses_database_path_secondary_override(tmp_path: Path) -> None:
 
     with sqlite3.connect(database_path) as connection:
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()
-    assert revision == ("20260712_0002",)
+    assert revision == ("20260712_0003",)
+
+
+def test_classification_migration_from_live_revision_is_additive(tmp_path: Path) -> None:
+    database_path = tmp_path / "live-revision-copy.db"
+    environment = os.environ.copy()
+    environment["JOBS_DB_PATH"] = str(database_path)
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "20260712_0002"],
+        check=True,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    with sqlite3.connect(database_path) as connection:
+        before = {
+            "jobs": connection.execute("SELECT COUNT(*) FROM jobs").fetchone()[0],
+            "email_imports": connection.execute("SELECT COUNT(*) FROM email_imports").fetchone()[0],
+            "imported_messages": connection.execute(
+                "SELECT COUNT(*) FROM imported_messages"
+            ).fetchone()[0],
+        }
+
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        check=True,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    with sqlite3.connect(database_path) as connection:
+        after = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in before
+        }
+        classifications = connection.execute(
+            "SELECT COUNT(*) FROM email_classifications"
+        ).fetchone()[0]
+        revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+
+    assert after == before
+    assert classifications == 0
+    assert revision == "20260712_0003"

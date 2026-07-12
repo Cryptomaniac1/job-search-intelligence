@@ -22,7 +22,7 @@ def test_representative_imports_on_migrated_disposable_copy(
     monkeypatch.setenv("JOBS_DB_PATH", str(database))
     command.upgrade(Config("alembic.ini"), "20260712_0001")
     _seed_preservation_job(database)
-    command.upgrade(Config("alembic.ini"), "20260712_0002")
+    command.upgrade(Config("alembic.ini"), "head")
     sys.modules.pop("backend.main", None)
     module = importlib.import_module("backend.main")
 
@@ -83,6 +83,9 @@ def _assert_rehearsal_database(database: Path) -> None:
         identities = connection.execute(
             "SELECT COUNT(DISTINCT stable_message_identity) FROM imported_messages"
         ).fetchone()[0]
+        classifications = connection.execute(
+            "SELECT COUNT(*) FROM email_classifications"
+        ).fetchone()[0]
         accounts = {
             row[0]
             for row in connection.execute(
@@ -93,5 +96,6 @@ def _assert_rehearsal_database(database: Path) -> None:
             "SELECT status, source, notes FROM jobs WHERE linkedin_job_id='preserved'"
         ).fetchone()
     assert message_count == identities == 3
+    assert classifications == 3
     assert accounts == {"gmail", "hotmail", "yahoo"}
     assert preserved == ("saved", "linkedin", "keep")

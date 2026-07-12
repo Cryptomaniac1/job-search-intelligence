@@ -22,6 +22,8 @@ the product and architecture documents remain part of the roadmap unless explici
   verification, and duplicate-candidate reporting.
 - Historical database at Alembic revision `20260712_0002`, externalized to ignored runtime path
   `data/jobs.db` with canonical environment-variable overrides.
+- Deterministic, versioned, provider-agnostic email classification engine with explainable reasons
+  and additive classification evidence persistence.
 
 ## Prototype
 
@@ -46,7 +48,8 @@ requirements or production reliability goals.
 
 - Live Gmail API synchronization.
 - Live Yahoo, Hotmail, and other IMAP synchronization.
-- Full email classification, including recruiter outreach and interview stages.
+- Deploy classification schema revision `20260712_0003` through the approved copy-rehearsal and
+  live-migration workflow; no historical backfill is planned.
 - Recruiter CRM and recruiter relationship scoring.
 - First-class applications, emails, companies, interviews, resumes, and offers.
 - Resume intelligence and automatic recommendations.
