@@ -68,6 +68,9 @@ Do not merge these sources unless explicitly requested.
 Emails are the system of record.
 Calendar augments email.
 Never delete imported records.
+The default runtime database is `data/jobs.db` and must never be committed.
+Database path precedence is `JOBS_DB_PATH`, then `DATABASE_PATH`, then `data/jobs.db`.
+Automated tests must use temporary database overrides.
 
 ## Feature Priorities
 
@@ -122,6 +125,8 @@ For every sprint:
 
 3. Never commit:
    - `backend/jobs.db`
+   - `backend/jobs.db.migrated`
+   - `data/jobs.db`
    - virtual environments
    - `.env` files
    - credentials, tokens, or secrets

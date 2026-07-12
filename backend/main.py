@@ -5,7 +5,6 @@ import csv
 import io
 import json
 import mailbox
-import os
 import re
 import sqlite3
 import tempfile
@@ -24,12 +23,18 @@ from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, create_e
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 try:
+    from backend.app.database.paths import (
+        initialize_database_if_missing,
+        resolve_database_path,
+    )
     from backend.app.services.import_identity import stable_message_identity
 except ModuleNotFoundError:  # Supports the existing `cd backend && uvicorn main:app` command.
+    from app.database.paths import initialize_database_if_missing, resolve_database_path
     from app.services.import_identity import stable_message_identity
 
 BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = Path(os.environ.get("JOBS_DB_PATH", BASE_DIR / "jobs.db")).resolve()
+DB_PATH = resolve_database_path()
+initialize_database_if_missing(DB_PATH)
 
 engine = create_engine(
     f"sqlite:///{DB_PATH}",

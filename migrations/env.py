@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import os
 from logging.config import fileConfig
-from pathlib import Path
 
 from alembic import context
+from backend.app.database.paths import resolve_database_path
 from sqlalchemy import engine_from_config, pool
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-database_path = Path(os.environ.get("JOBS_DB_PATH", "backend/jobs.db")).resolve()
+database_path = config.attributes.get("database_path") or resolve_database_path()
 config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path}")
 target_metadata = None
 

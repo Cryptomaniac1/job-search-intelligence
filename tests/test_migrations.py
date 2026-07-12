@@ -96,3 +96,22 @@ def test_upgrade_from_baseline_preserves_existing_rows(tmp_path: Path) -> None:
         )
 
     assert counts == ((1,), (1,), (0,))
+
+
+def test_alembic_uses_database_path_secondary_override(tmp_path: Path) -> None:
+    database_path = tmp_path / "database-path-override.db"
+    environment = os.environ.copy()
+    environment.pop("JOBS_DB_PATH", None)
+    environment["DATABASE_PATH"] = str(database_path)
+
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        check=True,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+
+    with sqlite3.connect(database_path) as connection:
+        revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()
+    assert revision == ("20260712_0002",)

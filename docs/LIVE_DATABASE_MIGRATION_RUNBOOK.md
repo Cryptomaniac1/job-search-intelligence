@@ -2,7 +2,7 @@
 
 ## Status
 
-This is a reviewed procedure, not authorization to migrate `backend/jobs.db`. Sprint 2 executed
+This is a reviewed procedure, not authorization to migrate `data/jobs.db`. Sprint 2 executed
 backup, preflight, upgrade, import, and rollback rehearsals only against SQLite-safe copies. The
 live migration commands below are marked **NOT EXECUTED** and require separate explicit approval.
 
@@ -21,7 +21,7 @@ Choose an absolute directory outside the repository on storage with sufficient f
 
 ```bash
 python -m backend.app.database.migration_readiness \
-  backup backend/jobs.db /absolute/external/job-intelligence-backups
+  backup data/jobs.db /absolute/external/job-intelligence-backups
 ```
 
 The command opens the source in SQLite read-only/query-only mode, uses SQLite's online backup API,
@@ -36,7 +36,7 @@ Retain both files. Do not place them in Git.
 ## 2. Read-only preflight
 
 ```bash
-python -m backend.app.database.migration_readiness preflight backend/jobs.db
+python -m backend.app.database.migration_readiness preflight
 ```
 
 Proceed only when:
@@ -53,7 +53,7 @@ Proceed only when:
 
 ```bash
 python -m backend.app.database.migration_readiness \
-  rehearse backend/jobs.db /absolute/external/job-intelligence-rehearsal
+  rehearse data/jobs.db /absolute/external/job-intelligence-rehearsal
 ```
 
 The command creates another safe copy, stamps that copy at `20260712_0001`, upgrades it to
@@ -82,7 +82,7 @@ approval and a verified backup.
 
 ```bash
 # NOT EXECUTED — stop the backend and import processes first.
-export JOBS_DB_PATH="$(pwd)/backend/jobs.db"
+export JOBS_DB_PATH="$(pwd)/data/jobs.db"
 
 # NOT EXECUTED — re-run and retain pre-migration evidence.
 python -m backend.app.database.migration_readiness preflight "$JOBS_DB_PATH"
@@ -130,7 +130,7 @@ source-import link, job link, outcome, error, and import timestamp stored there.
 
 ```bash
 # NOT EXECUTED — stop backend/import processes and back up first.
-export JOBS_DB_PATH="$(pwd)/backend/jobs.db"
+export JOBS_DB_PATH="$(pwd)/data/jobs.db"
 python -m alembic downgrade 20260712_0001
 python -m alembic current
 python -m backend.app.database.migration_readiness preflight "$JOBS_DB_PATH"
@@ -152,3 +152,14 @@ after migration; restoring the verified pre-migration backup is safer if post-mi
    do not merge databases manually.
 7. Restart only after schema, checksum expectations, row counts, integrity, and application startup
    have been verified.
+
+## Runtime storage relocation
+
+The live runtime database now defaults to `data/jobs.db`. `JOBS_DB_PATH` remains the highest
+priority override and `DATABASE_PATH` is secondary. The legacy source is retained temporarily as
+ignored, untracked `backend/jobs.db.migrated`.
+
+If `data/jobs.db` is missing or corrupt, keep the backend stopped. Preserve the failed file, verify
+the durable external backup and its metadata, restore the backup to `data/jobs.db`, run the
+readiness preflight, confirm revision and logical digests, then perform read-only smoke tests.
+Never silently fall back to the legacy file.

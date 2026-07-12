@@ -7,3 +7,11 @@ __pycache__/
 *.sqlite3
 .env
 backend/jobs.db
+backend/jobs.db.migrated
+data/jobs.db
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+backups/*
+!data/.gitkeep
+!backups/.gitkeep

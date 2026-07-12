@@ -24,8 +24,19 @@ from the repository root:
 uvicorn backend.main:app --host 127.0.0.1 --port 8002
 ```
 
-By default, the application uses `backend/jobs.db`. `JOBS_DB_PATH` exists only to direct tests and
-explicit development commands to a disposable database; production startup should leave it unset.
+By default, the application uses `data/jobs.db`. Resolution priority is `JOBS_DB_PATH`, then
+`DATABASE_PATH`, then the repository default. Relative overrides resolve from the repository root.
+The existing startup commands require no changes.
+
+Examples:
+
+```bash
+JOBS_DB_PATH=/absolute/path/to/jobs.db ./start_backend.sh
+DATABASE_PATH=/absolute/path/to/jobs.db uvicorn backend.main:app --host 127.0.0.1 --port 8002
+```
+
+If the resolved database is missing, startup creates its parent directory and initializes a new
+database at Alembic head. It never overwrites an existing file or falls back to `backend/jobs.db`.
 
 ## Verification commands
 
@@ -44,9 +55,9 @@ not be mixed into unrelated changes.
 
 ## Temporary-database testing policy
 
-Automated tests must set `JOBS_DB_PATH` to a path created by Pytest's `tmp_path` fixture before
-importing `backend.main`. Tests must never copy, open through the application, migrate, stamp, or
-write to `backend/jobs.db`.
+Automated tests must set `JOBS_DB_PATH` or `DATABASE_PATH` to a path created by Pytest's `tmp_path`
+fixture before importing `backend.main`. Tests must never copy, open through the application,
+migrate, stamp, or write to `data/jobs.db` or `backend/jobs.db.migrated`.
 
 Before and after database-related work, record the historical database checksum, schema, and row
 counts with read-only SQLite access. A changed checksum requires investigation before delivery.
@@ -81,31 +92,31 @@ rows.
 
 ## Migration-readiness commands
 
-Run the read-only live preflight:
+Run the read-only live preflight using the canonical default:
 
 ```bash
-python -m backend.app.database.migration_readiness preflight backend/jobs.db
+python -m backend.app.database.migration_readiness preflight
 ```
 
 Create a SQLite-safe backup outside the repository:
 
 ```bash
 python -m backend.app.database.migration_readiness \
-  backup backend/jobs.db /absolute/external/backup-directory
+  backup data/jobs.db /absolute/external/backup-directory
 ```
 
 Run stamp, upgrade, rerun, validation, and rollback against a generated copy only:
 
 ```bash
 python -m backend.app.database.migration_readiness \
-  rehearse backend/jobs.db /absolute/external/rehearsal-directory
+  rehearse data/jobs.db /absolute/external/rehearsal-directory
 ```
 
 Generate the full duplicate-candidate report outside the repository:
 
 ```bash
 python -m backend.app.database.migration_readiness \
-  duplicate-report backend/jobs.db /absolute/external/duplicate-candidates.csv
+  duplicate-report data/jobs.db /absolute/external/duplicate-candidates.csv
 ```
 
 Backup metadata records checksum, size, schema, indexes, row counts, integrity, foreign-key
@@ -128,8 +139,17 @@ family, applied date, Message-ID, ATS, requisition ID, application source, URL, 
 are preserved. Existing source, status, and notes are never replaced by an import. Confidence may
 only increase. Jobs already assigned to another email account are excluded from matching.
 
-Do not run `alembic upgrade`, `alembic downgrade`, or `alembic stamp` against
-`backend/jobs.db` without explicit authorization, a verified backup, and before/after evidence.
+Do not run `alembic upgrade`, `alembic downgrade`, or `alembic stamp` against `data/jobs.db`
+without explicit authorization, a verified backup, and before/after evidence.
+
+## Restore and legacy handling
+
+Restore only while the backend is stopped. Verify an external backup first, preserve the failed
+database for diagnosis, copy the verified backup to `data/jobs.db`, then run preflight before
+restart. Never restore into `backend/jobs.db`.
+
+`backend/jobs.db.migrated` is the verified pre-relocation source retained temporarily for rollback.
+It is ignored, untracked, and must not be committed or deleted without separate approval.
 
 ## Pre-commit
 

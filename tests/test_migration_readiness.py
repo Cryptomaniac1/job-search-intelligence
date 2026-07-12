@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from backend.app.database import migration_readiness
 from backend.app.database.migration_readiness import (
     BASELINE_REVISION,
     HEAD_REVISION,
@@ -21,6 +22,7 @@ from backend.app.database.migration_readiness import (
     table_digest,
     write_duplicate_report,
 )
+from backend.app.database.paths import LEGACY_DATABASE_PATH
 
 
 def create_database(path: Path, revision: str = BASELINE_REVISION) -> None:
@@ -77,10 +79,12 @@ def test_preflight_reports_schema_mismatch(tmp_path: Path) -> None:
 
 
 def test_live_database_write_protection() -> None:
-    with pytest.raises(ValueError, match="Refusing to modify historical database"):
+    with pytest.raises(ValueError, match="Refusing to modify protected database"):
         ensure_not_live_mutation(LIVE_DATABASE)
-    with pytest.raises(ValueError, match="Refusing to modify historical database"):
+    with pytest.raises(ValueError, match="Refusing to modify protected database"):
         run_alembic(LIVE_DATABASE, "stamp", BASELINE_REVISION)
+    with pytest.raises(ValueError, match="Refusing to modify protected database"):
+        ensure_not_live_mutation(LEGACY_DATABASE_PATH)
 
 
 def test_backup_creation_records_and_verifies_evidence(tmp_path: Path) -> None:
@@ -139,3 +143,22 @@ def test_duplicate_report_contains_field_differences_and_categories(tmp_path: Pa
     assert rows[0]["message_id"] == "duplicate@example.com"
     assert "company" in rows[0]["fields_that_differ"]
     assert rows[0]["recommended_category"] == "conflicting record requiring manual review"
+
+
+def test_relocation_copy_is_logically_equivalent_and_preserves_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "legacy" / "jobs.db"
+    destination = tmp_path / "data" / "jobs.db"
+    source.parent.mkdir()
+    create_database(source, HEAD_REVISION)
+    insert_minimal_job(source)
+    monkeypatch.setattr(migration_readiness, "DEFAULT_DATABASE_PATH", destination)
+
+    copied = migration_readiness.copy_database(source, destination)
+
+    assert copied == destination
+    assert source.exists()
+    assert destination.exists()
+    for table in ("jobs", "email_imports", "imported_messages"):
+        assert table_digest(source, table) == table_digest(destination, table)

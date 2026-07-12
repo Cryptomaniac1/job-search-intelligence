@@ -16,8 +16,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-LIVE_DATABASE = (REPOSITORY_ROOT / "backend" / "jobs.db").resolve()
+from backend.app.database.paths import (
+    DEFAULT_DATABASE_PATH,
+    LEGACY_DATABASE_PATH,
+    REPOSITORY_ROOT,
+    resolve_database_path,
+)
+
+LIVE_DATABASE = DEFAULT_DATABASE_PATH
+PROTECTED_DATABASES = {DEFAULT_DATABASE_PATH, LEGACY_DATABASE_PATH}
 BASELINE_REVISION = "20260712_0001"
 HEAD_REVISION = "20260712_0002"
 
@@ -108,8 +115,9 @@ def resolve_path(path: Path) -> Path:
 
 
 def ensure_not_live_mutation(path: Path) -> None:
-    if resolve_path(path) == LIVE_DATABASE:
-        raise ValueError(f"Refusing to modify historical database: {LIVE_DATABASE}")
+    resolved = resolve_path(path)
+    if resolved in PROTECTED_DATABASES:
+        raise ValueError(f"Refusing to modify protected database: {resolved}")
 
 
 def open_read_only(path: Path) -> sqlite3.Connection:
@@ -298,8 +306,25 @@ def create_backup(source: Path, output_directory: Path) -> tuple[Path, Path]:
     return destination, metadata
 
 
+def copy_database(source: Path, destination: Path) -> Path:
+    """Create a verified SQLite-safe relocation copy at the canonical runtime path."""
+    source = resolve_path(source)
+    destination = resolve_path(destination)
+    if destination != DEFAULT_DATABASE_PATH:
+        raise ValueError(f"Relocation destination must be {DEFAULT_DATABASE_PATH}")
+    if destination.exists():
+        raise FileExistsError(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with open_read_only(source) as source_connection:
+        with sqlite3.connect(destination) as destination_connection:
+            source_connection.backup(destination_connection)
+    if collect_evidence(destination).integrity_check != ["ok"]:
+        raise RuntimeError("Relocation copy verification failed")
+    return destination
+
+
 def table_digest(path: Path, table: str) -> str:
-    if table not in {"jobs", "email_imports"}:
+    if table not in {"jobs", "email_imports", "imported_messages"}:
         raise ValueError(f"Unsupported preservation table: {table}")
     digest = hashlib.sha256()
     with open_read_only(path) as connection:
@@ -501,7 +526,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     for name in ("preflight", "backup", "rehearse", "duplicate-report"):
         command = subparsers.add_parser(name)
-        command.add_argument("database", type=Path)
+        command.add_argument("database", type=Path, nargs="?", default=resolve_database_path())
         if name in {"backup", "rehearse"}:
             command.add_argument("output_directory", type=Path)
         if name == "duplicate-report":
