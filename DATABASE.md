@@ -2,8 +2,17 @@
 
 ## Implemented schema
 
-SQLite is the current persistence engine. `backend/jobs.db` is the historical database and must not
-be migrated, stamped, or mutated by automated tests.
+SQLite is the current persistence engine. The default live runtime database is `data/jobs.db`.
+Runtime databases are ignored by Git and must never be staged or committed.
+
+Canonical path resolution is:
+
+1. `JOBS_DB_PATH`;
+2. `DATABASE_PATH`;
+3. repository default `data/jobs.db`.
+
+Relative overrides resolve from the repository root, and the result is absolute before access.
+There is no fallback to `backend/jobs.db`.
 
 ### `jobs`
 
@@ -55,9 +64,22 @@ existing-database stamping procedures.
   and validates the baseline again using only the copy.
 - `duplicate-report` writes a field-level review CSV without changing source records.
 
-All Alembic operations in the readiness tool reject the resolved historical database path.
-Automated tests use only temporary databases. The live database remains unversioned and
-baseline-compatible until a separately approved deployment.
+All Alembic operations in the readiness tool reject both the current live path and the legacy
+source path. Automated tests use only temporary databases.
+
+## Storage relocation
+
+On 2026-07-12, the revision `20260712_0002` live database was copied with SQLite's online backup
+API from `backend/jobs.db` to `data/jobs.db`. Source and destination had identical checksums,
+schema, indexes, constraints, foreign keys, row counts, and logical digests. Read-only application
+smoke tests passed against the new default.
+
+The old source is retained locally as `backend/jobs.db.migrated`; it is ignored and untracked and
+must not be deleted during Sprint 4.
+
+When a resolved database does not exist, startup creates its parent directory and upgrades a new
+database through Alembic to the current revision. Existing databases are never overwritten,
+recreated, or silently replaced.
 
 ## Target architecture
 
