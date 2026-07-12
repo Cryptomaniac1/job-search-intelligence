@@ -53,8 +53,8 @@ counts with read-only SQLite access. A changed checksum requires investigation b
 
 ## Alembic
 
-The baseline revision is `20260712_0001`. It represents the two implemented application tables:
-`jobs` and `email_imports`. It does not introduce target-domain tables.
+The baseline revision is `20260712_0001`. Revision `20260712_0002` adds imported-message identity
+and provenance. It does not introduce the broader target-domain tables.
 
 Create and upgrade a disposable database:
 
@@ -68,11 +68,29 @@ baseline and back it up. Then explicitly mark it as current without running the 
 
 ```bash
 JOBS_DB_PATH=/absolute/path/to/existing.db alembic stamp 20260712_0001
+JOBS_DB_PATH=/absolute/path/to/existing.db alembic upgrade 20260712_0002
 ```
 
 `stamp` adds or updates Alembic's revision marker; it does not recreate `jobs` or `email_imports` or
 change their data rows. It must be an intentional operator action. Application startup never runs
 Alembic and never stamps a database automatically.
+
+The `20260712_0002` upgrade is additive, but it must still be run only after backup and schema
+verification. It creates `imported_messages`; it does not backfill, merge, or delete historical
+rows.
+
+## Import identity and merge policy
+
+Message identity is provider-scoped. RFC Message-ID values are Unicode-normalized, case-folded,
+trimmed, stripped of whitespace and surrounding angle brackets, then hashed with the normalized
+provider. Without Message-ID, the fingerprint hashes normalized provider, subject, sender, parsed
+date, and body. Text uses Unicode NFKC normalization, case-folding, whitespace collapse, and trim.
+Canonical sorted JSON is hashed with SHA-256 and prefixed with `v1:`.
+
+On a matched job, import values fill missing fields only. Existing account, role family, resume
+family, applied date, Message-ID, ATS, requisition ID, application source, URL, company, and title
+are preserved. Existing source, status, and notes are never replaced by an import. Confidence may
+only increase. Jobs already assigned to another email account are excluded from matching.
 
 Do not run `alembic upgrade`, `alembic downgrade`, or `alembic stamp` against
 `backend/jobs.db` without explicit authorization, a verified backup, and before/after evidence.

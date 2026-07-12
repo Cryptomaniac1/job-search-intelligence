@@ -23,6 +23,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
+try:
+    from backend.app.services.import_identity import stable_message_identity
+except ModuleNotFoundError:  # Supports the existing `cd backend && uvicorn main:app` command.
+    from app.services.import_identity import stable_message_identity
+
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.environ.get("JOBS_DB_PATH", BASE_DIR / "jobs.db")).resolve()
 
@@ -32,6 +37,12 @@ engine = create_engine(
 )
 
 class Base(DeclarativeBase):
+    pass
+
+
+class ProvenanceBase(DeclarativeBase):
+    """Models managed only by Alembic, never by legacy create_all()."""
+
     pass
 
 class Job(Base):
@@ -80,6 +91,20 @@ class EmailImport(Base):
     confirmations_found: Mapped[int] = mapped_column(Integer, default=0)
     matched_jobs: Mapped[int] = mapped_column(Integer, default=0)
     unmatched_jobs: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class ImportedMessage(ProvenanceBase):
+    __tablename__ = "imported_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    provider: Mapped[str] = mapped_column(String(50))
+    source_import_id: Mapped[int] = mapped_column(Integer)
+    stable_message_identity: Mapped[str] = mapped_column(String(67), unique=True)
+    original_message_id: Mapped[str] = mapped_column(String(500), default="")
+    imported_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    job_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    outcome: Mapped[str] = mapped_column(String(20))
+    error: Mapped[str] = mapped_column(Text, default="")
 
 Base.metadata.create_all(engine)
 
@@ -392,6 +417,7 @@ def match_or_create_application(
     requisition_id: str,
     ats_platform: str,
     message_id: str,
+    stable_identity: str,
 ) -> tuple[Job, float, bool]:
     account = ACCOUNT_MAP[mailbox_name]
     jobs = list(session.scalars(select(Job)))
@@ -400,6 +426,8 @@ def match_or_create_application(
     best_score = 0.0
 
     for job in jobs:
+        if job.email_account and job.email_account != mailbox_name:
+            continue
         score = 0.0
         if job_id and job.linkedin_job_id == job_id:
             score += 100
@@ -441,8 +469,9 @@ def match_or_create_application(
 
     matched = bool(best_job and best_score >= 45)
 
-    if not matched:
-        synthetic_id = job_id or f"email-{mailbox_name}-{abs(hash((company, title, applied_at, message_id)))}"
+    created = not matched
+    if created:
+        synthetic_id = job_id or f"email-{mailbox_name}-{stable_identity.removeprefix('v1:')[:32]}"
         best_job = Job(
             linkedin_job_id=synthetic_id,
             title=title or "Application confirmation",
@@ -456,16 +485,29 @@ def match_or_create_application(
         )
         session.add(best_job)
 
-    best_job.email_account = mailbox_name
-    best_job.role_family = account["role_family"]
-    best_job.resume_family = account["resume_family"]
-    best_job.applied_at = applied_at
-    best_job.confirmation_message_id = message_id
-    best_job.ats_platform = ats_platform
-    best_job.requisition_id = requisition_id
-    best_job.application_source = "email_confirmation"
-    best_job.status = "applied"
-    best_job.import_confidence = min(100.0, round(best_score, 1)) if matched else 0.0
+    if not best_job.email_account:
+        best_job.email_account = mailbox_name
+    if not best_job.role_family:
+        best_job.role_family = account["role_family"]
+    if not best_job.resume_family:
+        best_job.resume_family = account["resume_family"]
+    if applied_at and best_job.applied_at is None:
+        best_job.applied_at = applied_at
+    if message_id and not best_job.confirmation_message_id:
+        best_job.confirmation_message_id = message_id
+    if ats_platform and not best_job.ats_platform:
+        best_job.ats_platform = ats_platform
+    if requisition_id and not best_job.requisition_id:
+        best_job.requisition_id = requisition_id
+    if not best_job.application_source:
+        best_job.application_source = "email_confirmation"
+    if created:
+        best_job.status = "applied"
+    if matched:
+        best_job.import_confidence = max(
+            best_job.import_confidence,
+            min(100.0, round(best_score, 1)),
+        )
 
     if job_url and not best_job.url:
         best_job.url = job_url
@@ -475,6 +517,38 @@ def match_or_create_application(
         best_job.title = title
 
     return best_job, best_score, matched
+
+
+def imported_message_exists(session: Session, identity: str) -> bool:
+    return session.scalar(
+        select(ImportedMessage.id).where(
+            ImportedMessage.stable_message_identity == identity
+        )
+    ) is not None
+
+
+def record_imported_message(
+    session: Session,
+    *,
+    provider: str,
+    source_import_id: int,
+    identity: str,
+    original_message_id: str,
+    job_id: Optional[int],
+    outcome: str,
+    error: str = "",
+) -> None:
+    session.add(
+        ImportedMessage(
+            provider=provider,
+            source_import_id=source_import_id,
+            stable_message_identity=identity,
+            original_message_id=original_message_id,
+            job_id=job_id,
+            outcome=outcome,
+            error=error,
+        )
+    )
 
 @app.get("/health")
 def health():
@@ -566,6 +640,17 @@ def delete_job(job_id: int):
         job = session.get(Job, job_id)
         if not job:
             raise HTTPException(404, "Job not found")
+        imported = bool(
+            job.email_account
+            or job.confirmation_message_id
+            or job.application_source == "email_confirmation"
+            or job.source in {"email", "yahoo_db"}
+        )
+        if imported:
+            raise HTTPException(
+                409,
+                "Imported historical records cannot be hard-deleted",
+            )
         session.delete(job)
         session.commit()
     return {"ok": True}
@@ -589,11 +674,21 @@ async def import_mbox(
     confirmations_found = 0
     matched_jobs = 0
     unmatched_jobs = 0
+    newly_imported = 0
+    already_imported = 0
+    failed = 0
     preview: list[dict] = []
 
     try:
         mbox = mailbox.mbox(temp_path)
         with Session(engine) as session:
+            import_record = EmailImport(
+                mailbox_name=mailbox_name,
+                source_filename=file.filename or "",
+            )
+            session.add(import_record)
+            session.flush()
+
             for message in mbox:
                 total_messages += 1
 
@@ -609,45 +704,74 @@ async def import_mbox(
                 message_id = decode_mime(message.get("Message-ID"))
                 combined = f"{subject} {body}"
 
-                company, title = extract_company_and_title(subject, body, sender)
-                urls = extract_urls(combined)
-                job_url = next(
-                    (
-                        url
-                        for url in urls
-                        if any(
-                            marker in url.lower()
-                            for marker in [
-                                "linkedin.com/jobs/",
-                                "greenhouse.io",
-                                "lever.co",
-                                "myworkdayjobs.com",
-                                "ashbyhq.com",
-                                "smartrecruiters.com",
-                                "icims.com",
-                                "jobvite.com",
-                            ]
-                        )
-                    ),
-                    urls[0] if urls else "",
-                )
-
-                job_id = extract_job_id(combined)
-                requisition_id = extract_requisition_id(combined)
-                ats_platform = infer_ats(combined)
-
-                job, score, matched = match_or_create_application(
-                    session,
-                    mailbox_name=mailbox_name,
-                    company=company,
-                    title=title,
-                    applied_at=applied_at,
-                    job_url=job_url,
-                    job_id=job_id,
-                    requisition_id=requisition_id,
-                    ats_platform=ats_platform,
+                identity = stable_message_identity(
+                    provider=mailbox_name,
                     message_id=message_id,
+                    subject=subject,
+                    sender=sender,
+                    received_at=applied_at,
+                    body=body,
                 )
+                if imported_message_exists(session, identity):
+                    already_imported += 1
+                    continue
+
+                try:
+                    company, title = extract_company_and_title(subject, body, sender)
+                    urls = extract_urls(combined)
+                    job_url = next(
+                        (
+                            url
+                            for url in urls
+                            if any(
+                                marker in url.lower()
+                                for marker in [
+                                    "linkedin.com/jobs/",
+                                    "greenhouse.io",
+                                    "lever.co",
+                                    "myworkdayjobs.com",
+                                    "ashbyhq.com",
+                                    "smartrecruiters.com",
+                                    "icims.com",
+                                    "jobvite.com",
+                                ]
+                            )
+                        ),
+                        urls[0] if urls else "",
+                    )
+
+                    job_id = extract_job_id(combined)
+                    requisition_id = extract_requisition_id(combined)
+                    ats_platform = infer_ats(combined)
+
+                    job, score, matched = match_or_create_application(
+                        session,
+                        mailbox_name=mailbox_name,
+                        company=company,
+                        title=title,
+                        applied_at=applied_at,
+                        job_url=job_url,
+                        job_id=job_id,
+                        requisition_id=requisition_id,
+                        ats_platform=ats_platform,
+                        message_id=message_id,
+                        stable_identity=identity,
+                    )
+                    session.flush()
+                    record_imported_message(
+                        session,
+                        provider=mailbox_name,
+                        source_import_id=import_record.id,
+                        identity=identity,
+                        original_message_id=message_id,
+                        job_id=job.id,
+                        outcome="matched" if matched else "unmatched",
+                    )
+                    newly_imported += 1
+                except Exception as exc:
+                    session.rollback()
+                    failed += 1
+                    raise HTTPException(422, f"Email import failed: {exc}") from exc
 
                 if matched:
                     matched_jobs += 1
@@ -670,15 +794,10 @@ async def import_mbox(
                         }
                     )
 
-            import_record = EmailImport(
-                mailbox_name=mailbox_name,
-                source_filename=file.filename or "",
-                total_messages=total_messages,
-                confirmations_found=confirmations_found,
-                matched_jobs=matched_jobs,
-                unmatched_jobs=unmatched_jobs,
-            )
-            session.add(import_record)
+            import_record.total_messages = total_messages
+            import_record.confirmations_found = confirmations_found
+            import_record.matched_jobs = matched_jobs
+            import_record.unmatched_jobs = unmatched_jobs
             session.commit()
 
         return {
@@ -689,6 +808,11 @@ async def import_mbox(
             "confirmations_found": confirmations_found,
             "matched_jobs": matched_jobs,
             "unmatched_jobs": unmatched_jobs,
+            "newly_imported": newly_imported,
+            "already_imported": already_imported,
+            "matched": matched_jobs,
+            "unmatched": unmatched_jobs,
+            "failed": failed,
             "preview": preview,
         }
     finally:
@@ -699,9 +823,38 @@ def import_yahoo(payload: YahooImportPayload):
     imported = 0
     matched = 0
     unmatched = 0
+    already_imported = 0
+    failed = 0
 
     with Session(engine) as session:
+        import_record = EmailImport(
+            mailbox_name="yahoo",
+            source_filename="yahoo-json",
+            total_messages=len(payload.records),
+        )
+        session.add(import_record)
+        session.flush()
+
         for record in payload.records:
+            identity = stable_message_identity(
+                provider="yahoo",
+                message_id=record.confirmation_message_id,
+                subject=record.title,
+                sender=record.company,
+                received_at=record.applied_at,
+                body="|".join(
+                    [
+                        record.job_url,
+                        record.job_id,
+                        record.requisition_id,
+                        record.ats_platform,
+                    ]
+                ),
+            )
+            if imported_message_exists(session, identity):
+                already_imported += 1
+                continue
+
             job, _, was_matched = match_or_create_application(
                 session,
                 mailbox_name="yahoo",
@@ -713,17 +866,36 @@ def import_yahoo(payload: YahooImportPayload):
                 requisition_id=record.requisition_id,
                 ats_platform=record.ats_platform,
                 message_id=record.confirmation_message_id,
+                stable_identity=identity,
+            )
+            session.flush()
+            record_imported_message(
+                session,
+                provider="yahoo",
+                source_import_id=import_record.id,
+                identity=identity,
+                original_message_id=record.confirmation_message_id,
+                job_id=job.id,
+                outcome="matched" if was_matched else "unmatched",
             )
             imported += 1
             matched += int(was_matched)
             unmatched += int(not was_matched)
 
+        import_record.confirmations_found = imported + already_imported
+        import_record.matched_jobs = matched
+        import_record.unmatched_jobs = unmatched
         session.commit()
 
     return {
         "imported": imported,
         "matched_jobs": matched,
         "unmatched_jobs": unmatched,
+        "newly_imported": imported,
+        "already_imported": already_imported,
+        "matched": matched,
+        "unmatched": unmatched,
+        "failed": failed,
         "email_account": "yahoo",
         "role_family": ACCOUNT_MAP["yahoo"]["role_family"],
         "resume_family": ACCOUNT_MAP["yahoo"]["resume_family"],

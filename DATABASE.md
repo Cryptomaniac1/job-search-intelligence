@@ -1,51 +1,50 @@
-Tables
+# Database
 
-applications
+## Implemented schema
 
-- id
-- company
-- role
-- source
-- applied_date
-- status
+SQLite is the current persistence engine. `backend/jobs.db` is the historical database and must not
+be migrated, stamped, or mutated by automated tests.
 
-emails
+### `jobs`
 
-- id
-- thread_id
-- sender
-- subject
-- classification
-- received
-- body
+Stores the current combined job-discovery and application-tracking record. Sprint 1 does not split
+this legacy model. Important import fields include `email_account`, `role_family`, `resume_family`,
+`applied_at`, `confirmation_message_id`, `ats_platform`, `requisition_id`,
+`application_source`, and `import_confidence`.
 
-interviews
+### `email_imports`
 
-- id
-- application_id
-- stage
-- interviewer
-- date
+Stores one summary row for every MBOX or Yahoo JSON import attempt, including source filename,
+provider, message totals, confirmation totals, and matched/unmatched totals. Repeat attempts create
+new summary rows so import runs remain auditable.
 
-companies
+### `imported_messages`
 
-- id
-- company
-- recruiter_count
-- industry
+Added by Alembic revision `20260712_0002`. Stores one immutable provenance row for each unique
+provider-scoped message:
 
-recruiters
+- `provider`: normalized Gmail, Hotmail, or Yahoo account namespace.
+- `source_import_id`: the first `email_imports` run that accepted the message.
+- `stable_message_identity`: unique versioned SHA-256 identity.
+- `original_message_id`: original RFC Message-ID when available.
+- `imported_at`: first accepted import time.
+- `job_id`: matched or newly created legacy job.
+- `outcome`: `matched`, `unmatched`, or `failed`.
+- `error`: failure detail when applicable.
 
-- id
-- recruiter
-- company
-- email
-- recruiter_name
-- phone
-- relationship_score
+The unique identity prevents duplicate message and job creation. Later repeat attempts are counted
+as `already_imported` in their `email_imports` summary and do not overwrite the provenance row.
 
-roles
+## Migration history
 
-- id
-- title
-- family
+- `20260712_0001`: baseline representation of `jobs` and `email_imports`.
+- `20260712_0002`: additive imported-message identity and provenance table.
+
+Application startup does not run Alembic. See `DEVELOPER_GUIDE.md` for safe temporary upgrade and
+existing-database stamping procedures.
+
+## Target architecture
+
+Application, Email, Recruiter, Company, Job, Interview, Resume, and Offer are target domain
+concepts described in `docs/specification/DOMAIN_MODEL.md`. Except for the legacy `jobs` table,
+Sprint 1 does not create tables for those concepts. Their persistence design remains planned.
