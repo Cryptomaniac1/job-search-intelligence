@@ -21,7 +21,10 @@ backups/
   .gitkeep                # directory retained; contents ignored
 
 migrations/
+scripts/
+  start_interview_demo.py # disposable sanitized Interview Pipeline dashboard
 tests/
+  fixtures/interview/     # sanitized deterministic extraction cases
 extension/
 docs/
 ```

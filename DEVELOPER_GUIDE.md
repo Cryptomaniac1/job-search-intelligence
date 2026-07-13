@@ -72,7 +72,9 @@ counts with read-only SQLite access. A changed checksum requires investigation b
 The baseline revision is `20260712_0001`. Revision `20260712_0002` adds imported-message identity
 and provenance. Revision `20260712_0003` adds deterministic classification evidence. Revision
 `20260712_0004` adds the Recruiter CRM foundation without changing historical job rows or creating
-interview and offer entities.
+interview and offer entities. Revision `20260712_0005` adds interview aggregates and immutable
+event evidence without backfill. The deployed live database remains at `20260712_0004` until a
+separate approved migration.
 
 The live runtime database remains at its currently deployed revision until an explicitly approved
 copy rehearsal and live migration. Feature development and tests never upgrade `data/jobs.db`.
@@ -136,6 +138,19 @@ row counts and deterministic logical row digests.
 
 See `docs/LIVE_DATABASE_MIGRATION_RUNBOOK.md` before proposing any live deployment.
 
+## Temporary Interview Pipeline demo
+
+Run the sanitized dashboard demonstration without touching the runtime database:
+
+```bash
+backend/.venv/bin/python scripts/start_interview_demo.py
+```
+
+The command creates a database under the operating system temporary directory, upgrades it to
+Alembic head, creates one sanitized job, imports the checked-in interview fixtures, prints the
+dashboard URL, and deletes the temporary database when stopped. Use `--prepare-only` for a
+non-network isolation check. It always overrides `JOBS_DB_PATH` and never opens `data/jobs.db`.
+
 ## Import identity and merge policy
 
 Message identity is provider-scoped. RFC Message-ID values are Unicode-normalized, case-folded,
@@ -143,6 +158,10 @@ trimmed, stripped of whitespace and surrounding angle brackets, then hashed with
 provider. Without Message-ID, the fingerprint hashes normalized provider, subject, sender, parsed
 date, and body. Text uses Unicode NFKC normalization, case-folding, whitespace collapse, and trim.
 Canonical sorted JSON is hashed with SHA-256 and prefixed with `v1:`.
+
+Yahoo structured application records retain their legacy identity inputs. When the additive raw
+`subject`, `sender`, or `body` fields are present, those message fields drive provider-scoped
+identity, classification, and downstream deterministic evidence processing.
 
 On a matched job, import values fill missing fields only. Existing account, role family, resume
 family, applied date, Message-ID, ATS, requisition ID, application source, URL, company, and title

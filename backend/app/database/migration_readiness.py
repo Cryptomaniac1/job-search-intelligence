@@ -26,7 +26,7 @@ from backend.app.database.paths import (
 LIVE_DATABASE = DEFAULT_DATABASE_PATH
 PROTECTED_DATABASES = {DEFAULT_DATABASE_PATH, LEGACY_DATABASE_PATH}
 BASELINE_REVISION = "20260712_0001"
-HEAD_REVISION = "20260712_0004"
+HEAD_REVISION = "20260712_0005"
 
 EXPECTED_COLUMNS = {
     "jobs": {
@@ -83,6 +83,17 @@ IMPORTED_MESSAGE_COLUMNS = {
     "job_id",
     "outcome",
     "error",
+}
+
+PRESERVATION_TABLES = {
+    "jobs",
+    "email_imports",
+    "imported_messages",
+    "email_classifications",
+    "recruiters",
+    "recruiter_company_links",
+    "recruiter_email_addresses",
+    "recruiter_job_links",
 }
 
 
@@ -272,6 +283,8 @@ def _check_tables_and_indexes(
         "recruiter_company_links",
         "recruiter_email_addresses",
         "recruiter_job_links",
+        "interviews",
+        "interview_events",
         "alembic_version",
     }
     unexpected_tables = sorted(tables - allowed)
@@ -334,7 +347,7 @@ def copy_database(source: Path, destination: Path) -> Path:
 
 
 def table_digest(path: Path, table: str) -> str:
-    if table not in {"jobs", "email_imports", "imported_messages"}:
+    if table not in PRESERVATION_TABLES:
         raise ValueError(f"Unsupported preservation table: {table}")
     digest = hashlib.sha256()
     with open_read_only(path) as connection:
@@ -365,16 +378,25 @@ def rehearse(source: Path, output_directory: Path) -> dict[str, Any]:
         raise RuntimeError(f"Preflight failed: {preflight_result.errors}")
     copy_path, metadata_path = create_backup(source, output_directory)
     before = collect_evidence(copy_path)
-    before_digests = {table: table_digest(copy_path, table) for table in EXPECTED_COLUMNS}
+    preserved = sorted(PRESERVATION_TABLES.intersection(before.tables))
+    before_digests = {table: table_digest(copy_path, table) for table in preserved}
+    rollback_revision = before.alembic_revision or BASELINE_REVISION
     if before.alembic_revision is None:
         run_alembic(copy_path, "stamp", BASELINE_REVISION)
     run_alembic(copy_path, "upgrade", HEAD_REVISION)
     run_alembic(copy_path, "upgrade", HEAD_REVISION)
     upgraded = collect_evidence(copy_path)
     _validate_upgrade(copy_path, before.row_counts, before_digests, upgraded)
-    run_alembic(copy_path, "downgrade", BASELINE_REVISION)
+    run_alembic(copy_path, "downgrade", rollback_revision)
     rolled_back = collect_evidence(copy_path)
-    _validate_rollback(copy_path, before.row_counts, before_digests, rolled_back)
+    _validate_rollback(
+        copy_path,
+        before.row_counts,
+        before_digests,
+        rolled_back,
+        rollback_revision,
+        set(before.tables),
+    )
     return {
         "copy": str(copy_path),
         "metadata": str(metadata_path),
@@ -397,10 +419,12 @@ def _validate_upgrade(
         "recruiter_company_links",
         "recruiter_email_addresses",
         "recruiter_job_links",
+        "interviews",
+        "interview_events",
     }
     if evidence.alembic_revision != HEAD_REVISION or not required_tables.issubset(evidence.tables):
         raise RuntimeError("Upgrade did not reach the expected revision and schema")
-    for table in EXPECTED_COLUMNS:
+    for table in digests:
         if (
             evidence.row_counts[table] != row_counts[table]
             or table_digest(path, table) != digests[table]
@@ -432,20 +456,13 @@ def _validate_rollback(
     row_counts: dict[str, int],
     digests: dict[str, str],
     evidence: DatabaseEvidence,
+    expected_revision: str,
+    expected_tables: set[str],
 ) -> None:
-    removed_tables = {
-        "imported_messages",
-        "email_classifications",
-        "recruiters",
-        "recruiter_company_links",
-        "recruiter_email_addresses",
-        "recruiter_job_links",
-    }
-    if evidence.alembic_revision != BASELINE_REVISION or removed_tables.intersection(
-        evidence.tables
-    ):
+    actual_tables = set(evidence.tables)
+    if evidence.alembic_revision != expected_revision or actual_tables != expected_tables:
         raise RuntimeError("Rollback did not restore the baseline schema")
-    for table in EXPECTED_COLUMNS:
+    for table in digests:
         if (
             evidence.row_counts[table] != row_counts[table]
             or table_digest(path, table) != digests[table]

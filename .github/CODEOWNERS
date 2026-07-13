@@ -9,4 +9,5 @@
 /backend/app/services/import_*.py @Cryptomaniac1
 /backend/app/services/*classification*.py @Cryptomaniac1
 /backend/app/services/recruiter_crm.py @Cryptomaniac1
+/backend/app/services/interview_pipeline.py @Cryptomaniac1
 /docs/LIVE_DATABASE_MIGRATION_RUNBOOK.md @Cryptomaniac1

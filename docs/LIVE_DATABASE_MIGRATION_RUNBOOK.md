@@ -7,6 +7,12 @@ upgrade `data/jobs.db` from `20260712_0002` to `20260712_0003` after an explicit
 The procedure remains guidance only for future migrations and never grants authorization by
 itself.
 
+Sprint 7 adds revision `20260712_0005` in code but does not authorize or perform a live migration.
+The deployed database remains at `20260712_0004`. Deploying the Interview Pipeline schema requires
+a separate backup, rehearsal, evidence review, explicit approval gate, live upgrade, validation,
+and documentation record following the safety invariants below. No historical backfill is part of
+that future migration.
+
 ## Sprint 5.5 deployment record
 
 - Migration date: 2026-07-12.

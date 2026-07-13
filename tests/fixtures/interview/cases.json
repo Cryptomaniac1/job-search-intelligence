@@ -1,0 +1,72 @@
+[
+  {
+    "name": "recruiter screen invitation",
+    "subject": "Interview invitation - recruiter screen",
+    "body": "Schedule your interview for Job ID: REQ-7000 on January 20, 2027 at 10:00 AM PST. Join https://zoom.us/j/7000",
+    "classification": "INTERVIEW_INVITATION",
+    "interview_type": "recruiter_screen"
+  },
+  {
+    "name": "interview confirmation",
+    "subject": "Interview confirmation",
+    "body": "Your interview is confirmed for Job ID: REQ-7000 on January 20, 2027 at 10:00 AM PST. Join https://zoom.us/j/7000",
+    "classification": "INTERVIEW_CONFIRMATION",
+    "interview_type": "interview"
+  },
+  {
+    "name": "technical interview",
+    "subject": "Technical interview invitation",
+    "body": "Schedule your interview for Job ID: REQ-7000 on January 22, 2027 at 1:30 PM EST for 60 minutes. https://meet.google.com/tech-7000",
+    "classification": "INTERVIEW_INVITATION",
+    "interview_type": "technical"
+  },
+  {
+    "name": "panel interview",
+    "subject": "Panel interview invitation",
+    "body": "Schedule your interview for Job ID: REQ-7000 on January 23, 2027 at 9:00 AM UTC. https://teams.microsoft.com/l/meetup-join/panel",
+    "classification": "INTERVIEW_INVITATION",
+    "interview_type": "panel"
+  },
+  {
+    "name": "reschedule",
+    "subject": "Interview rescheduled",
+    "body": "Your interview rescheduled for Job ID: REQ-7000 on January 21, 2027 at 11:00 AM PST. https://zoom.us/j/7000",
+    "classification": "INTERVIEW_RESCHEDULE",
+    "interview_type": "interview"
+  },
+  {
+    "name": "cancellation",
+    "subject": "Interview cancelled",
+    "body": "Your interview has been cancelled for Job ID: REQ-7000. https://zoom.us/j/7000",
+    "classification": "INTERVIEW_CANCELLATION",
+    "interview_type": "interview"
+  },
+  {
+    "name": "assessment invitation",
+    "subject": "Assessment invitation",
+    "body": "Please complete an assessment for Job ID: REQ-7000 by January 25, 2027 at 5:00 PM UTC. https://www.hackerrank.com/test/7000",
+    "classification": "ASSESSMENT_INVITATION",
+    "interview_type": "assessment"
+  },
+  {
+    "name": "assessment reminder",
+    "subject": "Assessment reminder",
+    "body": "Reminder to complete the assessment for Job ID: REQ-7000 by January 25, 2027 at 5:00 PM UTC. https://www.hackerrank.com/test/7000",
+    "classification": "ASSESSMENT_REMINDER",
+    "interview_type": "assessment"
+  },
+  {
+    "name": "missing timezone",
+    "subject": "Interview invitation",
+    "body": "Schedule your interview for Job ID: REQ-7000 on January 26, 2027 at 2:00 PM. Call 415-555-0199. Location: 100 Main Street.",
+    "classification": "INTERVIEW_INVITATION",
+    "interview_type": "interview"
+  },
+  {
+    "name": "unlinked interview",
+    "subject": "Interview invitation",
+    "body": "Schedule your interview on January 27, 2027 at 3:00 PM PDT. https://zoom.us/j/unlinked",
+    "classification": "INTERVIEW_INVITATION",
+    "interview_type": "interview"
+  }
+]
