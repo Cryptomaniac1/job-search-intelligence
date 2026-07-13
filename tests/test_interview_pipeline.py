@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -277,19 +278,33 @@ def test_read_only_api_filters_upcoming_detail_and_dashboard(
 
 
 def test_temporary_demo_never_touches_live_database() -> None:
-    live_database = Path(__file__).parents[1] / "data" / "jobs.db"
-    before = hashlib.sha256(live_database.read_bytes()).hexdigest()
+    repository = Path(__file__).parents[1]
+    live_database = repository / "data" / "jobs.db"
+    live_existed = live_database.exists()
+    before = hashlib.sha256(live_database.read_bytes()).hexdigest() if live_existed else None
+    environment = os.environ.copy()
+    environment["JOBS_DB_PATH"] = str(live_database)
     result = subprocess.run(
         [sys.executable, "scripts/start_interview_demo.py", "--prepare-only"],
-        cwd=Path(__file__).parents[1],
+        cwd=repository,
         check=True,
         capture_output=True,
         text=True,
+        env=environment,
     )
-    after = hashlib.sha256(live_database.read_bytes()).hexdigest()
     assert "NON-PRODUCTION TEMPORARY INTERVIEW DEMO" in result.stdout
     assert "job-intelligence-interview-demo-" in result.stdout
-    assert before == after
+    temporary_line = next(
+        line for line in result.stdout.splitlines() if line.startswith("Temporary database: ")
+    )
+    temporary_database = Path(temporary_line.removeprefix("Temporary database: ")).resolve()
+    assert not temporary_database.is_relative_to(repository.resolve())
+    assert not temporary_database.exists()
+    if live_existed:
+        assert live_database.exists()
+        assert before == hashlib.sha256(live_database.read_bytes()).hexdigest()
+    else:
+        assert not live_database.exists()
 
 
 def test_interview_processing_failure_preserves_accepted_provenance(
