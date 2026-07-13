@@ -8,6 +8,7 @@ import mailbox
 import re
 import sqlite3
 import tempfile
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from email.header import decode_header, make_header
 from email.message import Message
@@ -34,6 +35,11 @@ try:
         classify_email,
     )
     from backend.app.services.import_identity import stable_message_identity
+    from backend.app.services.historical_interview_import import (
+        HistoricalInterviewCandidate,
+        HistoricalMessage,
+        build_interview_candidate,
+    )
     from backend.app.services.interview_pipeline import (
         InterviewEvidence,
         extract_interview,
@@ -47,6 +53,11 @@ except ModuleNotFoundError:  # Supports the existing `cd backend && uvicorn main
     from app.database.paths import initialize_database_if_missing, resolve_database_path
     from app.services.email_classification import ClassificationResult, EmailType, classify_email
     from app.services.import_identity import stable_message_identity
+    from app.services.historical_interview_import import (
+        HistoricalInterviewCandidate,
+        HistoricalMessage,
+        build_interview_candidate,
+    )
     from app.services.interview_pipeline import InterviewEvidence, extract_interview
     from app.services.recruiter_crm import (
         RecruiterEvidence,
@@ -713,6 +724,17 @@ def record_email_classification(
     return record
 
 
+def find_email_classification(
+    session: Session, identity: str, classifier_version: str
+) -> Optional[EmailClassification]:
+    return session.scalar(
+        select(EmailClassification).where(
+            EmailClassification.message_identity == identity,
+            EmailClassification.classifier_version == classifier_version,
+        )
+    )
+
+
 def find_explicit_job(
     session: Session, content: str, provider: Optional[str] = None
 ) -> Optional[Job]:
@@ -791,6 +813,30 @@ def record_recruiter(
     if job:
         _record_recruiter_job_link(session, recruiter.id, job.id, identity, evidence, observed_at)
     return recruiter
+
+
+def record_message_recruiter(
+    session: Session,
+    *,
+    evidence: RecruiterEvidence,
+    identity: str,
+    job: Optional[Job],
+    observed_at: datetime,
+) -> Optional[Recruiter]:
+    """Record deterministic contact evidence without linking conflicting companies."""
+    compatible = (
+        not job
+        or not job.company
+        or evidence.normalized_company == normalize_recruiter_company(job.company)
+    )
+    recruiter = record_recruiter(
+        session,
+        evidence=evidence,
+        identity=identity,
+        job=job if compatible else None,
+        observed_at=observed_at,
+    )
+    return recruiter if compatible or job is None else None
 
 
 def _add_recruiter_contacts(
@@ -909,14 +955,24 @@ def find_message_recruiter(
         query = query.join(
             RecruiterJobLink, RecruiterJobLink.recruiter_id == Recruiter.id
         ).where(RecruiterJobLink.job_id == job.id)
-    return session.scalar(query)
+    matches = list(session.scalars(query))
+    unique_matches = {item.id: item for item in matches}
+    return next(iter(unique_matches.values())) if len(unique_matches) == 1 else None
+
+
+def interview_event_exists(session: Session, identity: str, extractor_version: str) -> bool:
+    return session.scalar(
+        select(InterviewEvent.id).where(
+            InterviewEvent.source_message_identity == identity,
+            InterviewEvent.extractor_version == extractor_version,
+        )
+    ) is not None
 
 
 def find_interview(
     session: Session,
     *,
     job: Job,
-    recruiter: Optional[Recruiter],
     evidence: InterviewEvidence,
 ) -> Optional[Interview]:
     candidates = list(session.scalars(select(Interview).where(Interview.job_id == job.id)))
@@ -938,21 +994,7 @@ def find_interview(
         )
         if match:
             return match
-    if recruiter:
-        match = next(
-            (
-                item
-                for item in candidates
-                if item.recruiter_id == recruiter.id
-                and item.interview_type == evidence.interview_type
-                and item.status != "cancelled"
-            ),
-            None,
-        )
-        if match:
-            return match
-    same_type = [item for item in candidates if item.interview_type == evidence.interview_type]
-    return same_type[0] if len(same_type) == 1 else None
+    return None
 
 
 def record_interview_evidence(
@@ -967,7 +1009,7 @@ def record_interview_evidence(
     observed_at: datetime,
 ) -> Optional[Interview]:
     interview = (
-        find_interview(session, job=job, recruiter=recruiter, evidence=evidence) if job else None
+        find_interview(session, job=job, evidence=evidence) if job else None
     )
     if job and interview is None:
         interview = _new_interview(job, recruiter, evidence, identity, observed_at)
@@ -1073,6 +1115,198 @@ def _interview_evidence_json(evidence: InterviewEvidence, *, linked: bool) -> st
         + ([] if linked else ["no deterministic job linkage"]),
     }
     return json.dumps(payload, separators=(",", ":"), sort_keys=True)
+
+
+def import_historical_interview_messages(
+    messages: Iterable[HistoricalMessage], *, source_name: str
+) -> dict[str, int | str]:
+    """Replay one historical provider export without invoking legacy job import behavior."""
+    summary = _historical_summary()
+    source_import: Optional[EmailImport] = None
+    provider = ""
+    with Session(engine) as session:
+        for message in messages:
+            _increment(summary, "total_messages")
+            if provider and message.provider != provider:
+                raise ValueError("Historical import batches must contain exactly one provider")
+            provider = message.provider
+            summary["provider"] = provider
+            candidate = build_interview_candidate(message)
+            if candidate is None:
+                _increment(summary, "ignored_messages")
+                continue
+            _increment(summary, "deterministic_candidates")
+            if interview_event_exists(
+                session, candidate.identity, candidate.evidence.extractor_version
+            ):
+                _increment(summary, "already_recorded")
+                continue
+            source_import, linked, provenance_created, classification_created = (
+                _record_historical_candidate(session, candidate, source_import, source_name)
+            )
+            _increment(summary, "inserted_events")
+            _increment(summary, "linked_events" if linked else "unmatched_events")
+            if provenance_created:
+                _increment(summary, "created_provenance")
+            if classification_created:
+                _increment(summary, "created_classifications")
+        _finish_historical_import(source_import, summary)
+        session.commit()
+    return summary
+
+
+def _historical_summary() -> dict[str, int | str]:
+    return {
+        "provider": "",
+        "total_messages": 0,
+        "deterministic_candidates": 0,
+        "ignored_messages": 0,
+        "inserted_events": 0,
+        "already_recorded": 0,
+        "linked_events": 0,
+        "unmatched_events": 0,
+        "created_provenance": 0,
+        "created_classifications": 0,
+    }
+
+
+def _increment(summary: dict[str, int | str], key: str) -> None:
+    summary[key] = int(summary[key]) + 1
+
+
+def _record_historical_candidate(
+    session: Session,
+    candidate: HistoricalInterviewCandidate,
+    source_import: Optional[EmailImport],
+    source_name: str,
+) -> tuple[EmailImport | None, bool, bool, bool]:
+    message = candidate.message
+    imported_message = session.scalar(
+        select(ImportedMessage).where(
+            ImportedMessage.stable_message_identity == candidate.identity
+        )
+    )
+    if imported_message and imported_message.provider != message.provider:
+        raise ValueError("Stored message provider conflicts with provider-scoped identity")
+    job = _historical_job(session, candidate, imported_message)
+    source_import, provenance_created = _ensure_historical_provenance(
+        session, candidate, job, source_import, source_name
+    )
+    classification, classification_created = _ensure_historical_classification(
+        session, candidate, job
+    )
+    session.flush()
+    observed_at = message.received_at or datetime.utcnow()
+    recruiter = _historical_recruiter(session, candidate, job, observed_at)
+    record_interview_evidence(
+        session,
+        evidence=candidate.evidence,
+        identity=candidate.identity,
+        classification_id=classification.id,
+        provider=message.provider,
+        job=job,
+        recruiter=recruiter,
+        observed_at=observed_at,
+    )
+    return source_import, bool(job), provenance_created, classification_created
+
+
+def _historical_job(
+    session: Session,
+    candidate: HistoricalInterviewCandidate,
+    imported_message: Optional[ImportedMessage],
+) -> Optional[Job]:
+    if imported_message and imported_message.job_id:
+        return session.get(Job, imported_message.job_id)
+    message = candidate.message
+    return find_explicit_job(
+        session, f"{message.subject} {message.body}", message.provider
+    )
+
+
+def _ensure_historical_provenance(
+    session: Session,
+    candidate: HistoricalInterviewCandidate,
+    job: Optional[Job],
+    source_import: Optional[EmailImport],
+    source_name: str,
+) -> tuple[EmailImport | None, bool]:
+    if imported_message_exists(session, candidate.identity):
+        return source_import, False
+    message = candidate.message
+    if source_import is None:
+        source_import = EmailImport(
+            mailbox_name=message.provider,
+            source_filename=f"historical:{source_name}",
+        )
+        session.add(source_import)
+        session.flush()
+    record_imported_message(
+        session,
+        provider=message.provider,
+        source_import_id=source_import.id,
+        identity=candidate.identity,
+        original_message_id=message.message_id,
+        job_id=job.id if job else None,
+        outcome="matched" if job else "classified",
+    )
+    return source_import, True
+
+
+def _ensure_historical_classification(
+    session: Session, candidate: HistoricalInterviewCandidate, job: Optional[Job]
+) -> tuple[EmailClassification, bool]:
+    classification = find_email_classification(
+        session, candidate.identity, candidate.classification.classifier_version
+    )
+    if classification:
+        if classification.classification != candidate.classification.classification.value:
+            raise ValueError("Stored classification conflicts with deterministic replay")
+        return classification, False
+    return (
+        record_email_classification(
+            session,
+            identity=candidate.identity,
+            job_id=job.id if job else None,
+            result=candidate.classification,
+        ),
+        True,
+    )
+
+
+def _historical_recruiter(
+    session: Session,
+    candidate: HistoricalInterviewCandidate,
+    job: Optional[Job],
+    observed_at: datetime,
+) -> Optional[Recruiter]:
+    message = candidate.message
+    evidence = extract_recruiter(
+        classification=candidate.classification.classification.value,
+        sender=message.sender,
+        subject=message.subject,
+        body=message.body,
+    )
+    if not evidence:
+        return find_message_recruiter(session, message.sender, job)
+    return record_message_recruiter(
+        session,
+        evidence=evidence,
+        identity=candidate.identity,
+        job=job,
+        observed_at=observed_at,
+    )
+
+
+def _finish_historical_import(
+    source_import: Optional[EmailImport], summary: dict[str, int | str]
+) -> None:
+    if not source_import:
+        return
+    source_import.total_messages = int(summary["total_messages"])
+    source_import.confirmations_found = 0
+    source_import.matched_jobs = int(summary["linked_events"])
+    source_import.unmatched_jobs = int(summary["unmatched_events"])
 
 @app.get("/health")
 def health():
@@ -1308,7 +1542,7 @@ async def import_mbox(
                     session.flush()
                     recruiter: Optional[Recruiter] = None
                     if recruiter_evidence:
-                        recruiter = record_recruiter(
+                        recruiter = record_message_recruiter(
                             session,
                             evidence=recruiter_evidence,
                             identity=identity,
@@ -1479,7 +1713,7 @@ def import_yahoo(payload: YahooImportPayload):
             observed_at = record.applied_at or datetime.utcnow()
             recruiter: Optional[Recruiter] = None
             if recruiter_evidence:
-                recruiter = record_recruiter(
+                recruiter = record_message_recruiter(
                     session,
                     evidence=recruiter_evidence,
                     identity=identity,

@@ -37,6 +37,13 @@ the product and architecture documents remain part of the roadmap unless explici
   fixtures, and a temporary-database demonstration workflow.
 - Approval-gated Sprint 7.5 live migration completed with preserved historical row counts and
   logical digests; `interviews` and `interview_events` were created with zero rows.
+- Deterministic historical Interview Pipeline replay for Gmail/Hotmail MBOX and Yahoo JSON
+  exports, with provider-scoped idempotency, provenance preservation, explicit-only job matching,
+  conservative recruiter linkage, and protected temporary-database tooling.
+- Copy-only historical Interview Pipeline rehearsal with independent provider inputs, pre-import
+  candidate CSV, machine-readable safety evidence, two-pass idempotency checks, and source
+  checksum protection. Gmail and Hotmail raw exports are supported independently; Yahoo replay is
+  blocked until a compatible raw-message export is available.
 
 ## Prototype
 

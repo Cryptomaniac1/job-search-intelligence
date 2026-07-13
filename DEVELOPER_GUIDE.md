@@ -73,8 +73,8 @@ The baseline revision is `20260712_0001`. Revision `20260712_0002` adds imported
 and provenance. Revision `20260712_0003` adds deterministic classification evidence. Revision
 `20260712_0004` adds the Recruiter CRM foundation without changing historical job rows or creating
 interview and offer entities. Revision `20260712_0005` adds interview aggregates and immutable
-event evidence without backfill. The deployed live database remains at `20260712_0004` until a
-separate approved migration.
+event evidence without backfill. The deployed live database is at `20260712_0005` following the
+approval-gated Sprint 7.5 migration.
 
 The live runtime database remains at its currently deployed revision until an explicitly approved
 copy rehearsal and live migration. Feature development and tests never upgrade `data/jobs.db`.
@@ -147,9 +147,52 @@ backend/.venv/bin/python scripts/start_interview_demo.py
 ```
 
 The command creates a database under the operating system temporary directory, upgrades it to
-Alembic head, creates one sanitized job, imports the checked-in interview fixtures, prints the
-dashboard URL, and deletes the temporary database when stopped. Use `--prepare-only` for a
-non-network isolation check. It always overrides `JOBS_DB_PATH` and never opens `data/jobs.db`.
+Alembic head, creates one sanitized job, replays the checked-in interview fixtures through the
+historical importer, prints the dashboard URL, and deletes the temporary database when stopped.
+Use `--prepare-only` for a non-network isolation check. It always overrides `JOBS_DB_PATH` and
+never opens `data/jobs.db`.
+
+## Historical interview replay
+
+Historical replay reads complete Gmail/Hotmail MBOX or Yahoo raw-message JSON exports but stores
+only unambiguous messages matching the supported deterministic interview and assessment event
+types. It never invokes application matching/creation and never changes a `jobs` row. Existing
+message provenance and classifications are reused without updates; missing provenance and
+classification records are added only for accepted interview evidence.
+
+Run against an existing disposable database already upgraded to `20260712_0005`:
+
+```bash
+backend/.venv/bin/python scripts/import_historical_interviews.py \
+  --database /absolute/path/to/temporary.db \
+  --gmail-mbox /absolute/path/to/gmail.mbox \
+  --hotmail-mbox /absolute/path/to/hotmail.mbox \
+  --yahoo-json /absolute/path/to/yahoo.json
+```
+
+Source options may be repeated. The command refuses `data/jobs.db`, the legacy database paths,
+and missing or incorrectly versioned databases by default. `--allow-live-database` only removes
+that local guard; it does not grant authorization. A live replay still requires a separate
+backup, preflight, evidence review, explicit approval, and post-import validation task.
+
+Before any live replay, run the approval-gate rehearsal. It opens the source database read-only,
+creates a SQLite-safe copy in an external output directory, produces a candidate CSV and JSON
+evidence, replays the supplied exports twice against only the copy, and verifies source checksum,
+historical row preservation, idempotency, integrity, and foreign keys:
+
+```bash
+backend/.venv/bin/python scripts/rehearse_historical_interviews.py \
+  --source-database data/jobs.db \
+  --output-directory /absolute/external/rehearsal-output \
+  --gmail-mbox /absolute/path/to/gmail.mbox \
+  --hotmail-mbox /absolute/path/to/hotmail.mbox
+```
+
+Provider inputs are independent and repeatable; omit providers that are unavailable. Add
+`--yahoo-json` only for a raw-message export containing `subject`, `sender`, and `body` strings.
+The existing structured Yahoo opportunity/application export is not compatible and must not be
+treated as raw email. Use `--cleanup` only when the disposable database and reports no longer need
+manual review; otherwise they are preserved outside the repository.
 
 ## Import identity and merge policy
 
