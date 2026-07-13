@@ -59,11 +59,23 @@ message identity and classifier version:
 The unique `(message_identity, classifier_version)` constraint permits future classifier versions
 without overwriting earlier evidence. Sprint 5 performs no historical backfill.
 
+### Recruiter CRM tables
+
+Revision `20260712_0004` adds `recruiters`, `recruiter_company_links`,
+`recruiter_email_addresses`, and `recruiter_job_links`. These tables store deterministic recruiter
+profiles, normalized company/email matching evidence, and explicit recruiter-to-job relationships.
+The relationship table preserves its first source message and updates only observation timestamps
+when the same recruiter, job, and relationship type is seen again.
+
+The migration is additive and does not alter `jobs` or backfill historical messages. The live
+runtime database remains at `20260712_0003` until a separately approved migration task.
+
 ## Migration history
 
 - `20260712_0001`: baseline representation of `jobs` and `email_imports`.
 - `20260712_0002`: additive imported-message identity and provenance table.
 - `20260712_0003`: deterministic email classification evidence.
+- `20260712_0004`: deterministic Recruiter CRM foundation and job relationships.
 
 The live runtime database was upgraded from `20260712_0002` to `20260712_0003` on 2026-07-12
 through the approval-gated live-migration workflow. The migration preserved 7,718 `jobs` rows,

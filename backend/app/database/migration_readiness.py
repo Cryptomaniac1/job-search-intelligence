@@ -26,7 +26,7 @@ from backend.app.database.paths import (
 LIVE_DATABASE = DEFAULT_DATABASE_PATH
 PROTECTED_DATABASES = {DEFAULT_DATABASE_PATH, LEGACY_DATABASE_PATH}
 BASELINE_REVISION = "20260712_0001"
-HEAD_REVISION = "20260712_0003"
+HEAD_REVISION = "20260712_0004"
 
 EXPECTED_COLUMNS = {
     "jobs": {
@@ -268,6 +268,10 @@ def _check_tables_and_indexes(
         "email_imports",
         "imported_messages",
         "email_classifications",
+        "recruiters",
+        "recruiter_company_links",
+        "recruiter_email_addresses",
+        "recruiter_job_links",
         "alembic_version",
     }
     unexpected_tables = sorted(tables - allowed)
@@ -386,7 +390,14 @@ def _validate_upgrade(
     digests: dict[str, str],
     evidence: DatabaseEvidence,
 ) -> None:
-    required_tables = {"imported_messages", "email_classifications"}
+    required_tables = {
+        "imported_messages",
+        "email_classifications",
+        "recruiters",
+        "recruiter_company_links",
+        "recruiter_email_addresses",
+        "recruiter_job_links",
+    }
     if evidence.alembic_revision != HEAD_REVISION or not required_tables.issubset(evidence.tables):
         raise RuntimeError("Upgrade did not reach the expected revision and schema")
     for table in EXPECTED_COLUMNS:
@@ -422,7 +433,14 @@ def _validate_rollback(
     digests: dict[str, str],
     evidence: DatabaseEvidence,
 ) -> None:
-    removed_tables = {"imported_messages", "email_classifications"}
+    removed_tables = {
+        "imported_messages",
+        "email_classifications",
+        "recruiters",
+        "recruiter_company_links",
+        "recruiter_email_addresses",
+        "recruiter_job_links",
+    }
     if evidence.alembic_revision != BASELINE_REVISION or removed_tables.intersection(
         evidence.tables
     ):

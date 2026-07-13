@@ -26,6 +26,8 @@ the product and architecture documents remain part of the roadmap unless explici
   and additive classification evidence persistence.
 - Approval-gated Sprint 5.5 live migration completed with preserved historical row counts and
   logical digests; `email_classifications` began with zero rows.
+- Deterministic Recruiter CRM foundation with additive recruiter, company, email, and explicit job
+  relationship models, read-only APIs, and dashboard visibility.
 
 ## Prototype
 
@@ -50,7 +52,9 @@ requirements or production reliability goals.
 
 - Live Gmail API synchronization.
 - Live Yahoo, Hotmail, and other IMAP synchronization.
-- Recruiter CRM and recruiter relationship scoring.
+- Deploy Recruiter CRM schema revision `20260712_0004` through a separately approved live
+  migration; no historical backfill is planned.
+- Recruiter relationship scoring, notes, reminders, and editing.
 - First-class applications, emails, companies, interviews, resumes, and offers.
 - Resume intelligence and automatic recommendations.
 - Follow-up reminders and calendar augmentation.

@@ -1,0 +1,18 @@
+[
+  {
+    "classification": "RECRUITER_OUTREACH",
+    "sender": "Jane Smith <Jane.Smith@google.com>",
+    "subject": "A role at Google LLC",
+    "body": "Your background caught my attention.\nSenior Recruiter",
+    "expected_email": "jane.smith@google.com",
+    "expected_company": "google"
+  },
+  {
+    "classification": "RECRUITER_REPLY",
+    "sender": "Alex Agent <alex@agency.com>",
+    "subject": "Following up from Example, Inc.",
+    "body": "Thanks for getting back.\nLead Sourcer",
+    "expected_email": "alex@agency.com",
+    "expected_company": "example"
+  }
+]

@@ -35,7 +35,9 @@ Existing response fields remain unchanged. Sprint 1 adds:
 Repeated messages increment `already_imported` and do not create another job or provenance row.
 Every newly accepted MBOX message receives exactly one deterministic classification. Only
 `APPLICATION_CONFIRMATION` retains the existing job match/create workflow; other classifications
-create evidence without creating recruiter, interview, or job records.
+create classification evidence without creating interview or job records. The three recruiter
+classifications may create deterministic recruiter evidence; a job link requires an explicit job
+or requisition identifier.
 
 ### `POST /imports/yahoo`
 
@@ -51,6 +53,14 @@ Lists import-attempt summaries. Repeat attempts are intentionally visible.
 Lists classification evidence with optional `classification`, `provider`, and `limit` filters.
 Each record includes stable message identity, optional job ID, canonical type, confidence,
 classifier version, explainable reasons, and creation time.
+
+## Recruiters
+
+- `GET /recruiters` — lists recruiter profiles and their companies, email addresses, contact count,
+  and explicit job relationships. Optional exact normalized filters: `company` and `email`.
+- `GET /recruiters/{id}` — returns one recruiter profile or `404`.
+
+Sprint 6 provides no recruiter write endpoints.
 
 ## Analytics
 
