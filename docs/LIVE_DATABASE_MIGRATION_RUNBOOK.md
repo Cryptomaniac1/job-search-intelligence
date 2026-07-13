@@ -31,6 +31,33 @@ itself.
 - Deviation: the first smoke-test port bind was denied by the execution sandbox; the same test
   passed after localhost permission was granted. This did not affect the database.
 
+## Sprint 6.5 deployment record
+
+- Migration date: 2026-07-12 local time / 2026-07-13 UTC.
+- Source revision: `20260712_0003`.
+- Result revision: `20260712_0004`.
+- Verified backup:
+  `/Users/solovatmacpro16/Documents/job-intelligence-backups/sprint-6-5/jobs-20260713T062008Z.sqlite3`.
+- Backup metadata:
+  `/Users/solovatmacpro16/Documents/job-intelligence-backups/sprint-6-5/jobs-20260713T062008Z.metadata.json`.
+- Pre-migration SHA-256:
+  `6ced7c832e04c00216b5da2784f3296a4b6586c79befac094d6a8ccf0af94a40`.
+- Verified backup SHA-256:
+  `7c3f4f52d241bc1b755abaeacf12022f18299ce4012991815fe8a54cc3c6ca76`.
+- Post-migration SHA-256:
+  `cb9376097110bf78f4b1540090688d8d063256d788525513814822b7df0592b3`.
+- Preserved counts: 7,718 `jobs`, four `email_imports`, zero `imported_messages`, and zero
+  `email_classifications`.
+- New table counts: zero `recruiters`, `recruiter_company_links`,
+  `recruiter_email_addresses`, and `recruiter_job_links`.
+- Historical logical digests were unchanged.
+- Schema, check/unique constraints, indexes, foreign keys, `integrity_check`, and
+  `foreign_key_check` passed.
+- Health, dashboard, representative read-only job-list, and recruiter-list smoke tests returned
+  HTTP 200; the recruiter dashboard was present and the recruiter API returned an empty list.
+- No import, recruiter extraction, backfill, cleanup, downgrade, or historical-row update was
+  performed.
+
 ## Safety invariants
 
 - Stop the application and all import processes before a live migration.

@@ -68,7 +68,9 @@ The relationship table preserves its first source message and updates only obser
 when the same recruiter, job, and relationship type is seen again.
 
 The migration is additive and does not alter `jobs` or backfill historical messages. The live
-runtime database remains at `20260712_0003` until a separately approved migration task.
+runtime database was upgraded to `20260712_0004` through the approval-gated Sprint 6.5 workflow.
+Historical row counts and logical digests were preserved, and all four Recruiter CRM tables began
+with zero rows.
 
 ## Migration history
 
