@@ -32,13 +32,15 @@ def test_baseline_migration_builds_current_two_table_schema(tmp_path: Path) -> N
         "email_classifications",
         "email_imports",
         "imported_messages",
+        "interview_events",
+        "interviews",
         "jobs",
         "recruiter_company_links",
         "recruiter_email_addresses",
         "recruiter_job_links",
         "recruiters",
     }
-    assert revision == ("20260712_0004",)
+    assert revision == ("20260712_0005",)
 
 
 def test_upgrade_from_baseline_preserves_existing_rows(tmp_path: Path) -> None:
@@ -127,7 +129,7 @@ def test_alembic_uses_database_path_secondary_override(tmp_path: Path) -> None:
 
     with sqlite3.connect(database_path) as connection:
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()
-    assert revision == ("20260712_0004",)
+    assert revision == ("20260712_0005",)
 
 
 def test_classification_migration_from_live_revision_is_additive(tmp_path: Path) -> None:
@@ -169,7 +171,7 @@ def test_classification_migration_from_live_revision_is_additive(tmp_path: Path)
 
     assert after == before
     assert classifications == 0
-    assert revision == "20260712_0004"
+    assert revision == "20260712_0005"
 
 
 def test_recruiter_migration_from_live_revision_is_additive(tmp_path: Path) -> None:
@@ -232,4 +234,109 @@ def test_recruiter_migration_from_live_revision_is_additive(tmp_path: Path) -> N
     assert indexes["ix_recruiter_job_job_id"] is False
     assert unique_columns == ["recruiter_id", "job_id", "relationship_type"]
     assert "ck_recruiter_job_relationship_type" in table_sql
+    assert revision == "20260712_0005"
+
+
+def test_interview_migration_upgrade_and_downgrade_preserve_revision_0004(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "interview-migration.db"
+    environment = os.environ.copy()
+    environment["JOBS_DB_PATH"] = str(database_path)
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "20260712_0004"],
+        check=True,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    with sqlite3.connect(database_path) as connection:
+        before = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in (
+                "jobs",
+                "email_imports",
+                "imported_messages",
+                "email_classifications",
+                "recruiters",
+                "recruiter_company_links",
+                "recruiter_email_addresses",
+                "recruiter_job_links",
+            )
+        }
+
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "20260712_0005"],
+        check=True,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "20260712_0005"],
+        check=True,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    with sqlite3.connect(database_path) as connection:
+        after = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in before
+        }
+        new_counts = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in ("interviews", "interview_events")
+        }
+        interview_indexes = {
+            row[1] for row in connection.execute("PRAGMA index_list('interviews')")
+        }
+        event_indexes = {
+            row[1] for row in connection.execute("PRAGMA index_list('interview_events')")
+        }
+        event_foreign_tables = {
+            row[2] for row in connection.execute("PRAGMA foreign_key_list('interview_events')")
+        }
+        revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+
+    assert after == before
+    assert set(new_counts.values()) == {0}
+    assert {
+        "ix_interviews_job_id",
+        "ix_interviews_scheduled_start",
+        "ix_interviews_status",
+    } <= interview_indexes
+    assert {
+        "ix_interview_events_interview_id",
+        "ix_interview_events_job_id",
+        "ix_interview_events_event_type",
+    } <= event_indexes
+    assert event_foreign_tables == {
+        "interviews",
+        "jobs",
+        "recruiters",
+        "imported_messages",
+        "email_classifications",
+    }
+    assert revision == "20260712_0005"
+
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "downgrade", "20260712_0004"],
+        check=True,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    with sqlite3.connect(database_path) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        rolled_back = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in before
+        }
+        revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+    assert not {"interviews", "interview_events"}.intersection(tables)
+    assert rolled_back == before
     assert revision == "20260712_0004"

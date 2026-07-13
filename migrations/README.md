@@ -4,6 +4,7 @@ The baseline revision models `jobs` and `email_imports`. Revision `20260712_0002
 scoped `imported_messages` provenance table.
 Revision `20260712_0003` adds versioned deterministic `email_classifications` evidence.
 Revision `20260712_0004` adds the deterministic Recruiter CRM foundation and explicit job links.
+Revision `20260712_0005` adds deterministic interview aggregates and immutable event evidence.
 
 - The default target is `data/jobs.db`; `JOBS_DB_PATH` and then `DATABASE_PATH` override it.
 - Use an override with a disposable database for development and automated verification.
@@ -11,6 +12,8 @@ Revision `20260712_0004` adds the deterministic Recruiter CRM foundation and exp
 - Existing databases with the baseline schema are recognized through an explicit
   `alembic stamp 20260712_0001` after schema verification and backup.
 - Application startup does not invoke Alembic.
+- Sprint 7 verifies `20260712_0004` to `20260712_0005`, repeat upgrade, downgrade to `0004`, and
+  re-upgrade using temporary databases only. The live database is not migrated during feature work.
 - The migration-readiness tool refuses to run Alembic against current and legacy protected paths.
 - Backup and rehearsal outputs must be outside the repository and are never committed.
 - Downgrading `20260712_0002` drops `imported_messages` and permanently loses any provenance rows

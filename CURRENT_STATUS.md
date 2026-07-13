@@ -32,6 +32,9 @@ the product and architecture documents remain part of the roadmap unless explici
   digests; all four Recruiter CRM tables began with zero rows.
 - Pull-request CI definition, runtime-database guard, PR template, sensitive-path CODEOWNERS, and
   documented manual setup for main-branch protection, Codex review, and restricted auto-merge.
+- Deterministic Interview Pipeline foundation with versioned extraction evidence, additive
+  interview aggregates and immutable events, read-only APIs, dashboard visibility, sanitized
+  fixtures, and a temporary-database demonstration workflow.
 
 ## Prototype
 
@@ -47,7 +50,8 @@ requirements or production reliability goals.
 
 - Regression coverage expansion for import parsing, matching, and analytics.
 - Progressive extraction of the backend monolith into the `backend/app` package.
-- Domain-model and migration design beyond the current two-table baseline.
+- Approval-gated live migration from revision `20260712_0004` to `20260712_0005`; Sprint 7 does
+  not migrate or backfill the live database.
 - Review and separately plan remediation for pre-Sprint-1 duplicate historical records.
 - Retain `backend/jobs.db.migrated` temporarily as a local rollback artifact, then remove it only
   through a separately approved maintenance task.
@@ -57,7 +61,8 @@ requirements or production reliability goals.
 - Live Gmail API synchronization.
 - Live Yahoo, Hotmail, and other IMAP synchronization.
 - Recruiter relationship scoring, notes, reminders, and editing.
-- First-class applications, emails, companies, interviews, resumes, and offers.
+- First-class applications, emails, companies, resumes, and offers, plus richer interview editing
+  and calendar augmentation.
 - Resume intelligence and automatic recommendations.
 - Follow-up reminders and calendar augmentation.
 - AI interview coach and company intelligence.

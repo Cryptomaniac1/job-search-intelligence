@@ -99,7 +99,7 @@ jobs:
       - name: Upgrade, downgrade, and re-upgrade temporary database
         run: |
           python -m alembic upgrade head
-          python -m alembic downgrade 20260712_0003
+          python -m alembic downgrade 20260712_0004
           python -m alembic upgrade head
           python -m alembic current
       - name: Alembic regression tests

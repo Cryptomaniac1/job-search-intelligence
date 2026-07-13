@@ -72,12 +72,28 @@ runtime database was upgraded to `20260712_0004` through the approval-gated Spri
 Historical row counts and logical digests were preserved, and all four Recruiter CRM tables began
 with zero rows.
 
+### Interview Pipeline tables
+
+Revision `20260712_0005` adds `interviews` and `interview_events`. `interviews` is the current
+aggregate schedule/status for a deterministically linked job. `interview_events` is immutable,
+versioned source-message evidence and may remain unlinked when no job can be identified safely.
+
+Events preserve classification linkage, provider/account, parsed schedule and location values,
+extractor version, matched signals, ambiguity reasons, and source-message identity. A unique
+`(source_message_identity, extractor_version)` constraint makes repeat imports idempotent while
+allowing future extractor versions to add evidence. Reschedules and cancellations update the
+aggregate without deleting earlier events. Assessments use `interview_type=assessment`.
+
+The migration is additive and performs no historical backfill. The live database remains at
+`20260712_0004` until a separate approval-gated migration.
+
 ## Migration history
 
 - `20260712_0001`: baseline representation of `jobs` and `email_imports`.
 - `20260712_0002`: additive imported-message identity and provenance table.
 - `20260712_0003`: deterministic email classification evidence.
 - `20260712_0004`: deterministic Recruiter CRM foundation and job relationships.
+- `20260712_0005`: deterministic Interview Pipeline aggregates and immutable event evidence.
 
 The live runtime database was upgraded from `20260712_0002` to `20260712_0003` on 2026-07-12
 through the approval-gated live-migration workflow. The migration preserved 7,718 `jobs` rows,

@@ -84,3 +84,19 @@ are explicitly outside Sprint 5.
 Decision: classification evidence is additive and versioned. New classifier versions append
 evidence rather than replacing prior classifications. No historical records are automatically
 backfilled or modified.
+
+---
+
+## Deterministic interview evidence
+
+Decision: interview extraction is deterministic, provider-agnostic, versioned, and explainable.
+Email remains the source of truth; calendar data may augment it later but cannot replace evidence.
+
+Decision: `interviews` stores the current linked aggregate, while `interview_events` preserves each
+source message and extraction result. Reschedules and cancellations update the aggregate without
+deleting earlier evidence. Missing or ambiguous timezones preserve local text and never fabricate
+UTC.
+
+Decision: a job must be identified deterministically before an interview aggregate is created.
+Company-only and cross-account matching are prohibited. Unresolved messages remain event evidence.
+Sprint 7 performs no historical backfill and uses no LLM, embedding, or external API.

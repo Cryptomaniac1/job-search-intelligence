@@ -6,8 +6,9 @@ The entities below are **target domain concepts** for the planned Career Operati
 provide stable business vocabulary for future design and refactoring. They are not a statement that
 corresponding ORM models, tables, endpoints, or workflows already exist.
 
-Sprint 0 does not add domain tables. The implemented SQLite schema remains limited to `jobs` and
-`email_imports`.
+The concepts remain target vocabulary even where incremental foundations now exist. The current
+schema includes the legacy `jobs` model plus provenance, classification, Recruiter CRM, and Sprint
+7 Interview Pipeline evidence tables; it does not yet implement the complete target model.
 
 ## Target domain concepts
 
@@ -43,9 +44,10 @@ separating them is future migration work.
 
 ### Interview
 
-A scheduled or completed evaluation stage associated with an Application. It may include stage,
-participants, timing, notes, and calendar evidence. Calendar data augments rather than replaces
-email evidence.
+A scheduled or completed evaluation stage associated with an Application. Sprint 7 implements an
+additive job-linked aggregate and immutable email event evidence, including assessments, while the
+full Application relationship, editing, notes, and calendar augmentation remain planned. Calendar
+data augments rather than replaces email evidence.
 
 ### Resume
 

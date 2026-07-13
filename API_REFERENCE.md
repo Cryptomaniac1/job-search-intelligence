@@ -42,7 +42,9 @@ or requisition identifier.
 ### `POST /imports/yahoo`
 
 Imports the existing Yahoo JSON `records` payload. Existing fields remain unchanged; the same five
-additive counters described above are returned.
+additive counters described above are returned. Optional `subject`, `sender`, and `body` fields let
+new Yahoo message evidence use the same deterministic classification, recruiter, and interview
+pipeline while legacy structured application records retain their existing identity behavior.
 
 ### `GET /imports`
 
@@ -61,6 +63,18 @@ classifier version, explainable reasons, and creation time.
 - `GET /recruiters/{id}` — returns one recruiter profile or `404`.
 
 Sprint 6 provides no recruiter write endpoints.
+
+## Interviews
+
+- `GET /interviews` — lists linked interview aggregates. Optional filters: `status`,
+  `interview_type`, `job_id`, `recruiter_id`, `from_date`, `to_date`, `provider`, exact `company`,
+  and `upcoming=true`.
+- `GET /interviews/upcoming` — lists future, non-cancelled interviews.
+- `GET /interviews/{id}` — returns the aggregate, linked job/recruiter summaries, schedule, and
+  chronological immutable event evidence, including classifier/extractor references.
+
+Sprint 7 provides no interview write endpoints. Messages without deterministic job linkage remain
+as unresolved event evidence and do not appear as fabricated interview aggregates.
 
 ## Analytics
 

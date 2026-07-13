@@ -24,7 +24,13 @@ Canonical types:
 
 Each classification records confidence, classifier version, and reasons. Only application
 confirmations create or match legacy job records. Other messages create provenance and
-classification evidence for future Recruiter CRM and Interview Pipeline sprints.
+classification evidence. Sprint 7 consumes interview and assessment classifications through the
+versioned `deterministic-interview-v1` extractor.
+
+Interview extraction preserves matched signals, parsed values, missing/ambiguous-field reasons,
+provider/account, and original timezone text. UTC is stored only when a timezone is explicit.
+Interview aggregates require deterministic job linkage; company-only or cross-account inference is
+not allowed. Unresolved messages remain immutable event evidence and never create jobs.
 
 ## Planned
 
