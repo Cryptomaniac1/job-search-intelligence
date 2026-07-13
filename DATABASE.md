@@ -84,8 +84,14 @@ extractor version, matched signals, ambiguity reasons, and source-message identi
 allowing future extractor versions to add evidence. Reschedules and cancellations update the
 aggregate without deleting earlier events. Assessments use `interview_type=assessment`.
 
-The migration is additive and performs no historical backfill. The live database remains at
-`20260712_0004` until a separate approval-gated migration.
+The migration is additive and performs no historical backfill. On 2026-07-13, the live database
+was upgraded from `20260712_0004` to `20260712_0005` through the approval-gated Sprint 7.5
+workflow. Historical row counts and logical digests were preserved, and `interviews` and
+`interview_events` began with zero rows.
+
+Downgrading after interview evidence has been written would drop both Interview Pipeline tables
+and destroy that evidence. After either table contains data, use a verified backup or a separately
+reviewed evidence-preserving migration plan instead of downgrading.
 
 ## Migration history
 
@@ -100,6 +106,21 @@ through the approval-gated live-migration workflow. The migration preserved 7,71
 four `email_imports` rows, zero `imported_messages` rows, and the logical digests of all three
 existing tables. `email_classifications` was created with zero rows. No historical backfill or
 email import was run.
+
+The live runtime database was upgraded from `20260712_0004` to `20260712_0005` on 2026-07-13.
+The verified pre-migration backup and metadata are
+`/Users/solovatmacpro16/Documents/job-intelligence-backups/sprint-7-5/jobs-20260713T074652Z.sqlite3`
+and
+`/Users/solovatmacpro16/Documents/job-intelligence-backups/sprint-7-5/jobs-20260713T074652Z.metadata.json`.
+The live SHA-256 changed from
+`cb9376097110bf78f4b1540090688d8d063256d788525513814822b7df0592b3` to
+`d2cfc342b4ac191618844bb46e85c44815af9ca0f2048d8a262bb554408d062b` as the additive schema was
+applied. Counts remained 7,718 `jobs`, four `email_imports`, and zero rows in every existing
+evidence and Recruiter CRM table. Historical logical digests were unchanged; the two new tables
+began empty. Schema, check and unique constraints, indexes, foreign keys, `integrity_check`, and
+`foreign_key_check` passed. Read-only health, dashboard, job-list, recruiter-list, and
+interview-list smoke tests returned HTTP 200. No import, extraction, backfill, cleanup, downgrade,
+or historical-row update was performed.
 
 Application startup does not run Alembic. See `DEVELOPER_GUIDE.md` for safe temporary upgrade and
 existing-database stamping procedures.
