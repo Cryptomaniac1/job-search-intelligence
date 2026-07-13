@@ -20,7 +20,7 @@ the product and architecture documents remain part of the roadmap unless explici
 - Preservation-first email-to-job merge behavior and imported-record deletion protection.
 - Read-only live-database preflight, SQLite-safe backup, copy-only migration rehearsal, rollback
   verification, and duplicate-candidate reporting.
-- Historical database at Alembic revision `20260712_0004`, externalized to ignored runtime path
+- Historical database at Alembic revision `20260712_0005`, externalized to ignored runtime path
   `data/jobs.db` with canonical environment-variable overrides.
 - Deterministic, versioned, provider-agnostic email classification engine with explainable reasons
   and additive classification evidence persistence.
@@ -35,6 +35,8 @@ the product and architecture documents remain part of the roadmap unless explici
 - Deterministic Interview Pipeline foundation with versioned extraction evidence, additive
   interview aggregates and immutable events, read-only APIs, dashboard visibility, sanitized
   fixtures, and a temporary-database demonstration workflow.
+- Approval-gated Sprint 7.5 live migration completed with preserved historical row counts and
+  logical digests; `interviews` and `interview_events` were created with zero rows.
 
 ## Prototype
 
@@ -50,8 +52,6 @@ requirements or production reliability goals.
 
 - Regression coverage expansion for import parsing, matching, and analytics.
 - Progressive extraction of the backend monolith into the `backend/app` package.
-- Approval-gated live migration from revision `20260712_0004` to `20260712_0005`; Sprint 7 does
-  not migrate or backfill the live database.
 - Review and separately plan remediation for pre-Sprint-1 duplicate historical records.
 - Retain `backend/jobs.db.migrated` temporarily as a local rollback artifact, then remove it only
   through a separately approved maintenance task.

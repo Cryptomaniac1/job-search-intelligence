@@ -7,11 +7,9 @@ upgrade `data/jobs.db` from `20260712_0002` to `20260712_0003` after an explicit
 The procedure remains guidance only for future migrations and never grants authorization by
 itself.
 
-Sprint 7 adds revision `20260712_0005` in code but does not authorize or perform a live migration.
-The deployed database remains at `20260712_0004`. Deploying the Interview Pipeline schema requires
-a separate backup, rehearsal, evidence review, explicit approval gate, live upgrade, validation,
-and documentation record following the safety invariants below. No historical backfill is part of
-that future migration.
+Sprint 7.5 used this procedure on 2026-07-13 to upgrade the deployed database from
+`20260712_0004` to `20260712_0005`. The Interview Pipeline tables were created empty, historical
+counts and logical digests were preserved, and no import or backfill was performed.
 
 ## Sprint 5.5 deployment record
 
@@ -63,6 +61,37 @@ that future migration.
   HTTP 200; the recruiter dashboard was present and the recruiter API returned an empty list.
 - No import, recruiter extraction, backfill, cleanup, downgrade, or historical-row update was
   performed.
+
+## Sprint 7.5 deployment record
+
+- Migration date: 2026-07-13.
+- Source revision: `20260712_0004`.
+- Result revision: `20260712_0005`.
+- Verified backup:
+  `/Users/solovatmacpro16/Documents/job-intelligence-backups/sprint-7-5/jobs-20260713T074652Z.sqlite3`.
+- Backup metadata:
+  `/Users/solovatmacpro16/Documents/job-intelligence-backups/sprint-7-5/jobs-20260713T074652Z.metadata.json`.
+- Pre-migration SHA-256:
+  `cb9376097110bf78f4b1540090688d8d063256d788525513814822b7df0592b3`.
+- Verified backup SHA-256:
+  `12ed1ae0f9bad91820938dfbc80acf11fe132981caef451c0a78d1623c11118b`.
+- Post-migration SHA-256:
+  `d2cfc342b4ac191618844bb46e85c44815af9ca0f2048d8a262bb554408d062b`.
+- Preserved counts: 7,718 `jobs`, four `email_imports`, and zero `imported_messages`,
+  `email_classifications`, `recruiters`, `recruiter_company_links`,
+  `recruiter_email_addresses`, and `recruiter_job_links`.
+- New table counts: zero `interviews` and zero `interview_events`.
+- Historical logical digests were unchanged.
+- The Interview Pipeline schema, check and unique constraints, indexes, and foreign keys were
+  present and valid. `integrity_check` returned `ok`, and `foreign_key_check` returned no
+  violations.
+- Health, dashboard, representative read-only job-list, recruiter-list, and interview-list smoke
+  tests returned HTTP 200; the recruiter and interview APIs returned empty lists.
+- No import, interview or recruiter extraction, backfill, cleanup, downgrade, or historical-row
+  update was performed.
+- Operational warning: revision `20260712_0005` downgrade drops `interviews` and
+  `interview_events`. Do not downgrade after either table contains evidence; use the verified
+  backup or a separately approved evidence-preserving migration plan.
 
 ## Safety invariants
 
