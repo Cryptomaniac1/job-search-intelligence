@@ -76,6 +76,9 @@ Sprint 6 provides no recruiter write endpoints.
 Sprint 7 provides no interview write endpoints. Messages without deterministic job linkage remain
 as unresolved event evidence and do not appear as fabricated interview aggregates.
 
+Sprint 8 adds no write endpoint. Historical Gmail/Hotmail/Yahoo replay is an approval-gated local
+operator command; the existing read-only interview API and payload contracts are unchanged.
+
 ## Analytics
 
 - `GET /analytics/overview`

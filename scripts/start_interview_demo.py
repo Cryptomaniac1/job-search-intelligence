@@ -15,6 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.dont_write_bytecode = True
 
 
 def build_mbox(cases: list[dict[str, str]]) -> bytes:
@@ -44,6 +45,8 @@ def prepare_demo() -> tuple[Path, object]:
 
     command.upgrade(Config(str(ROOT / "alembic.ini")), "head")
     module = importlib.import_module("backend.main")
+    from backend.app.services.historical_interview_import import iter_mbox_messages
+
     cases = json.loads((ROOT / "tests" / "fixtures" / "interview" / "cases.json").read_text())
     with TestClient(module.app) as client:
         response = client.post(
@@ -51,16 +54,18 @@ def prepare_demo() -> tuple[Path, object]:
             json={
                 "linkedin_job_id": "REQ-7000",
                 "title": "Sanitized Demo Role",
-                "company": "Acme Demo",
+                "company": "Acme",
             },
         )
         response.raise_for_status()
-        imported = client.post(
-            "/imports/mbox",
-            data={"mailbox_name": "gmail"},
-            files={"file": ("sanitized-interviews.mbox", build_mbox(cases), "application/mbox")},
+        archive = temporary_directory / "sanitized-interviews.mbox"
+        archive.write_bytes(build_mbox(cases))
+        imported = module.import_historical_interview_messages(
+            iter_mbox_messages(archive, "gmail"),
+            source_name=archive.name,
         )
-        imported.raise_for_status()
+        if imported["inserted_events"] != len(cases):
+            raise RuntimeError(f"Historical demo import was incomplete: {imported}")
     return database, module
 
 

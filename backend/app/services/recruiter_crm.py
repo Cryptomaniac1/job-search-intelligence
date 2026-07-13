@@ -11,6 +11,14 @@ RECRUITER_CLASSIFICATIONS = {
     "RECRUITER_REPLY",
     "RECRUITER_FOLLOW_UP",
 }
+INTERVIEW_CONTACT_CLASSIFICATIONS = {
+    "INTERVIEW_INVITATION",
+    "INTERVIEW_CONFIRMATION",
+    "INTERVIEW_RESCHEDULE",
+    "INTERVIEW_CANCELLATION",
+    "ASSESSMENT_INVITATION",
+    "ASSESSMENT_REMINDER",
+}
 GENERIC_DOMAINS = {
     "gmail.com",
     "hotmail.com",
@@ -32,6 +40,10 @@ PHONE_PATTERN = re.compile(r"(?<!\d)(?:\+?1[ .-]?)?\(?\d{3}\)?[ .-]\d{3}[ .-]\d{
 TITLE_PATTERN = re.compile(
     r"(?im)^\s*((?:senior |lead |principal )?(?:technical )?"
     r"(?:recruiter|sourcer|talent partner|talent acquisition|recruiting coordinator))\s*$"
+)
+RECRUITING_ROLE_PATTERN = re.compile(
+    r"\b(?:recruiter|sourcer|talent partner|talent acquisition|recruiting coordinator)\b",
+    re.IGNORECASE,
 )
 
 
@@ -61,7 +73,8 @@ def extract_recruiter(
     *, classification: str, sender: str, subject: str, body: str
 ) -> RecruiterEvidence | None:
     """Return recruiter evidence only when deterministic minimums are satisfied."""
-    if classification not in RECRUITER_CLASSIFICATIONS:
+    supported = RECRUITER_CLASSIFICATIONS | INTERVIEW_CONTACT_CLASSIFICATIONS
+    if classification not in supported:
         return None
     name, address = parseaddr(sender)
     normalized_email = address.strip().casefold()
@@ -72,6 +85,10 @@ def extract_recruiter(
     if not normalized_company:
         return None
     clean_name = " ".join(name.strip().split())
+    if classification in INTERVIEW_CONTACT_CLASSIFICATIONS and not RECRUITING_ROLE_PATTERN.search(
+        f"{clean_name}\n{body}"
+    ):
+        return None
     confidence = 0.95 if clean_name else 0.9
     return RecruiterEvidence(
         name=clean_name,
