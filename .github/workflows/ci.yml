@@ -40,10 +40,10 @@ jobs:
   python-quality:
     name: Python quality
     runs-on: ubuntu-latest
-    env:
-      JOBS_DB_PATH: ${{ runner.temp }}/quality.db
     steps:
       - uses: actions/checkout@v4
+      - name: Configure temporary database path
+        run: echo "JOBS_DB_PATH=$RUNNER_TEMP/quality.db" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -68,10 +68,10 @@ jobs:
   test-suite:
     name: Test suite
     runs-on: ubuntu-latest
-    env:
-      JOBS_DB_PATH: ${{ runner.temp }}/pytest.db
     steps:
       - uses: actions/checkout@v4
+      - name: Configure temporary database path
+        run: echo "JOBS_DB_PATH=$RUNNER_TEMP/pytest.db" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -85,10 +85,10 @@ jobs:
   migration-safety:
     name: Migration safety
     runs-on: ubuntu-latest
-    env:
-      JOBS_DB_PATH: ${{ runner.temp }}/migration.db
     steps:
       - uses: actions/checkout@v4
+      - name: Configure temporary database path
+        run: echo "JOBS_DB_PATH=$RUNNER_TEMP/migration.db" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -108,10 +108,10 @@ jobs:
   temporary-database-smoke:
     name: Temporary database smoke
     runs-on: ubuntu-latest
-    env:
-      JOBS_DB_PATH: ${{ runner.temp }}/smoke.db
     steps:
       - uses: actions/checkout@v4
+      - name: Configure temporary database path
+        run: echo "JOBS_DB_PATH=$RUNNER_TEMP/smoke.db" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
