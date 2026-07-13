@@ -28,6 +28,8 @@ the product and architecture documents remain part of the roadmap unless explici
   logical digests; `email_classifications` began with zero rows.
 - Deterministic Recruiter CRM foundation with additive recruiter, company, email, and explicit job
   relationship models, read-only APIs, and dashboard visibility.
+- Pull-request CI definition, runtime-database guard, PR template, sensitive-path CODEOWNERS, and
+  documented manual setup for main-branch protection, Codex review, and restricted auto-merge.
 
 ## Prototype
 
