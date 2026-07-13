@@ -33,10 +33,20 @@ try:
         classify_email,
     )
     from backend.app.services.import_identity import stable_message_identity
+    from backend.app.services.recruiter_crm import (
+        RecruiterEvidence,
+        extract_recruiter,
+        normalize_company as normalize_recruiter_company,
+    )
 except ModuleNotFoundError:  # Supports the existing `cd backend && uvicorn main:app` command.
     from app.database.paths import initialize_database_if_missing, resolve_database_path
     from app.services.email_classification import ClassificationResult, EmailType, classify_email
     from app.services.import_identity import stable_message_identity
+    from app.services.recruiter_crm import (
+        RecruiterEvidence,
+        extract_recruiter,
+        normalize_company as normalize_recruiter_company,
+    )
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = resolve_database_path()
@@ -129,6 +139,61 @@ class EmailClassification(ProvenanceBase):
     classifier_version: Mapped[str] = mapped_column(String(50))
     reason_json: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class Recruiter(ProvenanceBase):
+    __tablename__ = "recruiters"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(300), default="")
+    title: Mapped[str] = mapped_column(String(300), default="")
+    signature: Mapped[str] = mapped_column(Text, default="")
+    linkedin_url: Mapped[str] = mapped_column(String(1000), default="")
+    phone: Mapped[str] = mapped_column(String(100), default="")
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class RecruiterCompanyLink(ProvenanceBase):
+    __tablename__ = "recruiter_company_links"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    recruiter_id: Mapped[int] = mapped_column(Integer)
+    company_name: Mapped[str] = mapped_column(String(300))
+    normalized_company_name: Mapped[str] = mapped_column(String(300))
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class RecruiterEmailAddress(ProvenanceBase):
+    __tablename__ = "recruiter_email_addresses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    recruiter_id: Mapped[int] = mapped_column(Integer)
+    email: Mapped[str] = mapped_column(String(500))
+    normalized_email: Mapped[str] = mapped_column(String(500))
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class RecruiterJobLink(ProvenanceBase):
+    __tablename__ = "recruiter_job_links"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    recruiter_id: Mapped[int] = mapped_column(Integer)
+    job_id: Mapped[int] = mapped_column(Integer)
+    source_message_identity: Mapped[str] = mapped_column(String(67))
+    relationship_type: Mapped[str] = mapped_column(String(50))
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
 
 Base.metadata.create_all(engine)
 
@@ -593,6 +658,185 @@ def record_email_classification(
         )
     )
 
+
+def find_explicit_job(session: Session, content: str) -> Optional[Job]:
+    """Resolve a job only from an explicit job or requisition identifier."""
+    identifiers = {extract_job_id(content), extract_requisition_id(content)} - {""}
+    for identifier in identifiers:
+        job = session.scalar(
+            select(Job).where(
+                (Job.linkedin_job_id == identifier) | (Job.requisition_id == identifier)
+            )
+        )
+        if job:
+            return job
+    return None
+
+
+def find_recruiter(session: Session, evidence: RecruiterEvidence) -> Optional[Recruiter]:
+    company_filter = (
+        RecruiterCompanyLink.normalized_company_name == evidence.normalized_company
+    )
+    recruiter = session.scalar(
+        select(Recruiter)
+        .join(RecruiterEmailAddress, RecruiterEmailAddress.recruiter_id == Recruiter.id)
+        .join(RecruiterCompanyLink, RecruiterCompanyLink.recruiter_id == Recruiter.id)
+        .where(
+            RecruiterEmailAddress.normalized_email == evidence.normalized_email,
+            company_filter,
+        )
+    )
+    if recruiter:
+        return recruiter
+    if evidence.name:
+        return session.scalar(
+            select(Recruiter)
+            .join(RecruiterCompanyLink, RecruiterCompanyLink.recruiter_id == Recruiter.id)
+            .where(Recruiter.name == evidence.name, company_filter)
+        )
+    if not evidence.signature:
+        return None
+    return session.scalar(
+        select(Recruiter)
+        .join(RecruiterCompanyLink, RecruiterCompanyLink.recruiter_id == Recruiter.id)
+        .where(Recruiter.signature == evidence.signature, company_filter)
+    )
+
+
+def record_recruiter(
+    session: Session,
+    *,
+    evidence: RecruiterEvidence,
+    identity: str,
+    job: Optional[Job],
+    observed_at: datetime,
+) -> Recruiter:
+    recruiter = find_recruiter(session, evidence)
+    if recruiter is None:
+        recruiter = Recruiter(
+            name=evidence.name,
+            title=evidence.title,
+            signature=evidence.signature,
+            linkedin_url=evidence.linkedin_url,
+            phone=evidence.phone,
+            first_seen_at=observed_at,
+            last_seen_at=observed_at,
+            created_at=observed_at,
+            updated_at=observed_at,
+        )
+        session.add(recruiter)
+        session.flush()
+        _add_recruiter_contacts(session, recruiter.id, evidence, observed_at)
+    else:
+        recruiter.last_seen_at = max(recruiter.last_seen_at, observed_at)
+        recruiter.updated_at = observed_at
+        _preserve_recruiter_fields(recruiter, evidence)
+        _touch_recruiter_contacts(session, recruiter.id, evidence, observed_at)
+    if job:
+        _record_recruiter_job_link(session, recruiter.id, job.id, identity, evidence, observed_at)
+    return recruiter
+
+
+def _add_recruiter_contacts(
+    session: Session, recruiter_id: int, evidence: RecruiterEvidence, observed_at: datetime
+) -> None:
+    common = {
+        "first_seen_at": observed_at,
+        "last_seen_at": observed_at,
+        "created_at": observed_at,
+        "updated_at": observed_at,
+    }
+    session.add(
+        RecruiterCompanyLink(
+            recruiter_id=recruiter_id,
+            company_name=evidence.company,
+            normalized_company_name=evidence.normalized_company,
+            **common,
+        )
+    )
+    session.add(
+        RecruiterEmailAddress(
+            recruiter_id=recruiter_id,
+            email=evidence.email,
+            normalized_email=evidence.normalized_email,
+            **common,
+        )
+    )
+
+
+def _touch_recruiter_contacts(
+    session: Session, recruiter_id: int, evidence: RecruiterEvidence, observed_at: datetime
+) -> None:
+    company = session.scalar(
+        select(RecruiterCompanyLink).where(
+            RecruiterCompanyLink.recruiter_id == recruiter_id,
+            RecruiterCompanyLink.normalized_company_name == evidence.normalized_company,
+        )
+    )
+    email = session.scalar(
+        select(RecruiterEmailAddress).where(
+            RecruiterEmailAddress.recruiter_id == recruiter_id,
+            RecruiterEmailAddress.normalized_email == evidence.normalized_email,
+        )
+    )
+    if company:
+        company.last_seen_at = max(company.last_seen_at, observed_at)
+        company.updated_at = observed_at
+    if email:
+        email.last_seen_at = max(email.last_seen_at, observed_at)
+        email.updated_at = observed_at
+    else:
+        session.add(
+            RecruiterEmailAddress(
+                recruiter_id=recruiter_id,
+                email=evidence.email,
+                normalized_email=evidence.normalized_email,
+                first_seen_at=observed_at,
+                last_seen_at=observed_at,
+                created_at=observed_at,
+                updated_at=observed_at,
+            )
+        )
+
+
+def _preserve_recruiter_fields(recruiter: Recruiter, evidence: RecruiterEvidence) -> None:
+    for field in ("name", "title", "signature", "linkedin_url", "phone"):
+        if not getattr(recruiter, field) and getattr(evidence, field):
+            setattr(recruiter, field, getattr(evidence, field))
+
+
+def _record_recruiter_job_link(
+    session: Session,
+    recruiter_id: int,
+    job_id: int,
+    identity: str,
+    evidence: RecruiterEvidence,
+    observed_at: datetime,
+) -> None:
+    link = session.scalar(
+        select(RecruiterJobLink).where(
+            RecruiterJobLink.recruiter_id == recruiter_id,
+            RecruiterJobLink.job_id == job_id,
+            RecruiterJobLink.relationship_type == evidence.relationship_type,
+        )
+    )
+    if link:
+        link.last_seen_at = max(link.last_seen_at, observed_at)
+        link.updated_at = observed_at
+        return
+    session.add(
+        RecruiterJobLink(
+            recruiter_id=recruiter_id,
+            job_id=job_id,
+            source_message_identity=identity,
+            relationship_type=evidence.relationship_type,
+            first_seen_at=observed_at,
+            last_seen_at=observed_at,
+            created_at=observed_at,
+            updated_at=observed_at,
+        )
+    )
+
 @app.get("/health")
 def health():
     return {"ok": True, "version": "2.0.0"}
@@ -795,6 +1039,14 @@ async def import_mbox(
                             message_id=message_id,
                             stable_identity=identity,
                         )
+                    recruiter_evidence = extract_recruiter(
+                        classification=classification.classification.value,
+                        sender=sender,
+                        subject=subject,
+                        body=body,
+                    )
+                    if recruiter_evidence:
+                        job = find_explicit_job(session, combined)
                     session.flush()
                     record_imported_message(
                         session,
@@ -811,6 +1063,15 @@ async def import_mbox(
                         job_id=job.id if job else None,
                         result=classification,
                     )
+                    session.flush()
+                    if recruiter_evidence:
+                        record_recruiter(
+                            session,
+                            evidence=recruiter_evidence,
+                            identity=identity,
+                            job=job,
+                            observed_at=applied_at or datetime.utcnow(),
+                        )
                     newly_imported += 1
                 except Exception as exc:
                     session.rollback()
@@ -1008,6 +1269,85 @@ def list_email_classifications(
         }
         for record in records
     ]
+
+
+def serialize_recruiter(session: Session, recruiter: Recruiter) -> dict:
+    companies = list(
+        session.scalars(
+            select(RecruiterCompanyLink).where(
+                RecruiterCompanyLink.recruiter_id == recruiter.id
+            )
+        )
+    )
+    emails = list(
+        session.scalars(
+            select(RecruiterEmailAddress).where(
+                RecruiterEmailAddress.recruiter_id == recruiter.id
+            )
+        )
+    )
+    job_links = list(
+        session.scalars(
+            select(RecruiterJobLink).where(RecruiterJobLink.recruiter_id == recruiter.id)
+        )
+    )
+    return {
+        "id": recruiter.id,
+        "name": recruiter.name,
+        "title": recruiter.title,
+        "signature": recruiter.signature,
+        "linkedin_url": recruiter.linkedin_url,
+        "phone": recruiter.phone,
+        "companies": [item.company_name for item in companies],
+        "emails": [item.email for item in emails],
+        "contact_count": len(emails),
+        "job_links": [
+            {
+                "job_id": item.job_id,
+                "relationship_type": item.relationship_type,
+                "source_message_identity": item.source_message_identity,
+                "first_seen_at": item.first_seen_at.isoformat(),
+                "last_seen_at": item.last_seen_at.isoformat(),
+            }
+            for item in job_links
+        ],
+        "first_seen_at": recruiter.first_seen_at.isoformat(),
+        "last_seen_at": recruiter.last_seen_at.isoformat(),
+    }
+
+
+@app.get("/recruiters")
+def list_recruiters(
+    company: Optional[str] = None,
+    email: Optional[str] = None,
+    limit: int = Query(default=500, ge=1, le=5000),
+):
+    query = select(Recruiter).order_by(Recruiter.last_seen_at.desc()).limit(limit)
+    if company:
+        query = query.join(
+            RecruiterCompanyLink,
+            RecruiterCompanyLink.recruiter_id == Recruiter.id,
+        ).where(
+            RecruiterCompanyLink.normalized_company_name
+            == normalize_recruiter_company(company)
+        )
+    if email:
+        query = query.join(
+            RecruiterEmailAddress,
+            RecruiterEmailAddress.recruiter_id == Recruiter.id,
+        ).where(RecruiterEmailAddress.normalized_email == email.strip().casefold())
+    with Session(engine) as session:
+        recruiters = list(session.scalars(query).unique())
+        return [serialize_recruiter(session, recruiter) for recruiter in recruiters]
+
+
+@app.get("/recruiters/{recruiter_id}")
+def get_recruiter(recruiter_id: int):
+    with Session(engine) as session:
+        recruiter = session.get(Recruiter, recruiter_id)
+        if recruiter is None:
+            raise HTTPException(404, "Recruiter not found")
+        return serialize_recruiter(session, recruiter)
 
 @app.get("/jobs/export.csv")
 def export_csv(

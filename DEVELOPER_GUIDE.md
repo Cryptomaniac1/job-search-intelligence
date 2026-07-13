@@ -65,8 +65,9 @@ counts with read-only SQLite access. A changed checksum requires investigation b
 ## Alembic
 
 The baseline revision is `20260712_0001`. Revision `20260712_0002` adds imported-message identity
-and provenance. Revision `20260712_0003` adds deterministic classification evidence. These do not
-introduce recruiter or interview domain tables.
+and provenance. Revision `20260712_0003` adds deterministic classification evidence. Revision
+`20260712_0004` adds the Recruiter CRM foundation without changing historical job rows or creating
+interview and offer entities.
 
 The live runtime database remains at its currently deployed revision until an explicitly approved
 copy rehearsal and live migration. Feature development and tests never upgrade `data/jobs.db`.

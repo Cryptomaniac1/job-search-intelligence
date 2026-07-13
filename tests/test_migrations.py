@@ -33,8 +33,12 @@ def test_baseline_migration_builds_current_two_table_schema(tmp_path: Path) -> N
         "email_imports",
         "imported_messages",
         "jobs",
+        "recruiter_company_links",
+        "recruiter_email_addresses",
+        "recruiter_job_links",
+        "recruiters",
     }
-    assert revision == ("20260712_0003",)
+    assert revision == ("20260712_0004",)
 
 
 def test_upgrade_from_baseline_preserves_existing_rows(tmp_path: Path) -> None:
@@ -100,9 +104,11 @@ def test_upgrade_from_baseline_preserves_existing_rows(tmp_path: Path) -> None:
             connection.execute("SELECT COUNT(*) FROM email_imports").fetchone(),
             connection.execute("SELECT COUNT(*) FROM imported_messages").fetchone(),
             connection.execute("SELECT COUNT(*) FROM email_classifications").fetchone(),
+            connection.execute("SELECT COUNT(*) FROM recruiters").fetchone(),
+            connection.execute("SELECT COUNT(*) FROM recruiter_job_links").fetchone(),
         )
 
-    assert counts == ((1,), (1,), (0,), (0,))
+    assert counts == ((1,), (1,), (0,), (0,), (0,), (0,))
 
 
 def test_alembic_uses_database_path_secondary_override(tmp_path: Path) -> None:
@@ -121,7 +127,7 @@ def test_alembic_uses_database_path_secondary_override(tmp_path: Path) -> None:
 
     with sqlite3.connect(database_path) as connection:
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()
-    assert revision == ("20260712_0003",)
+    assert revision == ("20260712_0004",)
 
 
 def test_classification_migration_from_live_revision_is_additive(tmp_path: Path) -> None:
@@ -163,4 +169,67 @@ def test_classification_migration_from_live_revision_is_additive(tmp_path: Path)
 
     assert after == before
     assert classifications == 0
-    assert revision == "20260712_0003"
+    assert revision == "20260712_0004"
+
+
+def test_recruiter_migration_from_live_revision_is_additive(tmp_path: Path) -> None:
+    database_path = tmp_path / "recruiter-migration.db"
+    environment = os.environ.copy()
+    environment["JOBS_DB_PATH"] = str(database_path)
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "20260712_0003"],
+        check=True,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    with sqlite3.connect(database_path) as connection:
+        before = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in ("jobs", "email_imports", "imported_messages", "email_classifications")
+        }
+
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        check=True,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    with sqlite3.connect(database_path) as connection:
+        after = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in before
+        }
+        recruiter_counts = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in (
+                "recruiters",
+                "recruiter_company_links",
+                "recruiter_email_addresses",
+                "recruiter_job_links",
+            )
+        }
+        foreign_tables = {
+            row[2] for row in connection.execute("PRAGMA foreign_key_list('recruiter_job_links')")
+        }
+        indexes = {
+            row[1]: bool(row[2])
+            for row in connection.execute("PRAGMA index_list('recruiter_job_links')")
+        }
+        unique_index = next(name for name, unique in indexes.items() if unique)
+        unique_columns = [
+            row[2] for row in connection.execute(f'PRAGMA index_info("{unique_index}")')
+        ]
+        table_sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='recruiter_job_links'"
+        ).fetchone()[0]
+        revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+
+    assert after == before
+    assert set(recruiter_counts.values()) == {0}
+    assert foreign_tables == {"recruiters", "jobs", "imported_messages"}
+    assert indexes["ix_recruiter_job_job_id"] is False
+    assert unique_columns == ["recruiter_id", "job_id", "relationship_type"]
+    assert "ck_recruiter_job_relationship_type" in table_sql
+    assert revision == "20260712_0004"
