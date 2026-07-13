@@ -53,6 +53,11 @@ The initial tooling scope deliberately excludes `backend/main.py`. New package a
 pass all checks. Formatting and fully typing the legacy monolith is later refactoring work and must
 not be mixed into unrelated changes.
 
+Pull requests targeting `main` run the same checks in GitHub Actions, plus migration
+downgrade/re-upgrade verification, JavaScript syntax checks, repository database guards, and
+temporary-database smoke tests. See `docs/CI_AND_PULL_REQUEST_AUTOMATION.md` for the required check
+names and the manual GitHub protection/review setup.
+
 ## Temporary-database testing policy
 
 Automated tests must set `JOBS_DB_PATH` or `DATABASE_PATH` to a path created by Pytest's `tmp_path`
