@@ -20,7 +20,7 @@ the product and architecture documents remain part of the roadmap unless explici
 - Preservation-first email-to-job merge behavior and imported-record deletion protection.
 - Read-only live-database preflight, SQLite-safe backup, copy-only migration rehearsal, rollback
   verification, and duplicate-candidate reporting.
-- Historical database at Alembic revision `20260712_0003`, externalized to ignored runtime path
+- Historical database at Alembic revision `20260712_0004`, externalized to ignored runtime path
   `data/jobs.db` with canonical environment-variable overrides.
 - Deterministic, versioned, provider-agnostic email classification engine with explainable reasons
   and additive classification evidence persistence.
@@ -28,6 +28,8 @@ the product and architecture documents remain part of the roadmap unless explici
   logical digests; `email_classifications` began with zero rows.
 - Deterministic Recruiter CRM foundation with additive recruiter, company, email, and explicit job
   relationship models, read-only APIs, and dashboard visibility.
+- Approval-gated Sprint 6.5 live migration completed with preserved historical counts and logical
+  digests; all four Recruiter CRM tables began with zero rows.
 - Pull-request CI definition, runtime-database guard, PR template, sensitive-path CODEOWNERS, and
   documented manual setup for main-branch protection, Codex review, and restricted auto-merge.
 
@@ -54,8 +56,6 @@ requirements or production reliability goals.
 
 - Live Gmail API synchronization.
 - Live Yahoo, Hotmail, and other IMAP synchronization.
-- Deploy Recruiter CRM schema revision `20260712_0004` through a separately approved live
-  migration; no historical backfill is planned.
 - Recruiter relationship scoring, notes, reminders, and editing.
 - First-class applications, emails, companies, interviews, resumes, and offers.
 - Resume intelligence and automatic recommendations.
