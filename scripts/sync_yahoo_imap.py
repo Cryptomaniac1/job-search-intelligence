@@ -25,6 +25,17 @@ from backend.app.services.imap_checkpoint import (  # noqa: E402
     verify_sync_database,
     write_checkpoint,
 )
+from backend.app.services.yahoo_live_sync import (  # noqa: E402
+    EXPECTED_LIVE_DATABASE,
+    FIRST_LIVE_UID,
+    authorize_first_live_batch,
+    checkpoint_evidence,
+    database_state,
+    idempotency_evidence,
+    idempotency_token,
+    preflight_live_sync,
+    state_delta,
+)
 from backend.app.services.yahoo_imap import (  # noqa: E402
     DEFAULT_CONNECT_TIMEOUT,
     DEFAULT_HOST,
@@ -85,11 +96,17 @@ def parse_arguments() -> argparse.Namespace:
     mode.add_argument("--list-folders", action="store_true")
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--count-only", action="store_true")
+    mode.add_argument("--preflight-live", action="store_true")
     mode.add_argument("--sync", action="store_true")
     parser.add_argument("--folder")
     parser.add_argument("--database", type=Path)
     parser.add_argument("--since-date", type=parse_since_date)
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--allow-live-database", action="store_true")
+    parser.add_argument("--confirm-live-sync")
+    parser.add_argument("--backup-metadata", type=Path)
+    parser.add_argument("--dry-run-evidence", type=Path)
+    parser.add_argument("--output-json", type=Path)
     resume = parser.add_mutually_exclusive_group()
     resume.add_argument("--start-uid", type=positive_integer)
     resume.add_argument("--after-uid", type=nonnegative_integer)
@@ -111,20 +128,28 @@ def parse_arguments() -> argparse.Namespace:
         parser.error("--folder or YAHOO_IMAP_FOLDER is required")
     if not arguments.list_folders and arguments.since_date is None:
         parser.error("--since-date is required for count-only, dry-run, and sync")
-    if arguments.sync and arguments.database is None:
-        parser.error("--sync requires an explicit --database")
+    if (arguments.sync or arguments.preflight_live) and arguments.database is None:
+        parser.error("--sync and --preflight-live require an explicit --database")
+    if arguments.preflight_live and not (
+        arguments.backup_metadata and arguments.dry_run_evidence
+    ):
+        parser.error("--preflight-live requires --backup-metadata and --dry-run-evidence")
+    if arguments.output_json and not arguments.dry_run:
+        parser.error("--output-json is supported only with --dry-run")
     return arguments
 
 
 def refuse_protected_database(path: Path) -> Path:
-    """Never enable live synchronization from this Sprint 9 CLI."""
+    """Keep protected paths closed unless the explicit live gate has already passed."""
     resolved = path.expanduser().resolve()
     if resolved in PROTECTED_DATABASES:
-        raise ValueError("Live Yahoo IMAP synchronization is not enabled in Sprint 9")
+        raise ValueError("Protected database requires the approval-gated live synchronization path")
     return verify_sync_database(resolved)
 
 
-def dry_run_report(scan: YahooImapScan) -> dict[str, Any]:
+def dry_run_report(
+    scan: YahooImapScan, *, requested_start_uid: int | None = None
+) -> dict[str, Any]:
     classifications = Counter(
         classify_email(
             subject=message.subject,
@@ -137,6 +162,7 @@ def dry_run_report(scan: YahooImapScan) -> dict[str, Any]:
         "mode": "dry-run",
         "folder": scan.folder,
         "since_date": scan.since_date.isoformat(),
+        "requested_start_uid": requested_start_uid,
         "uidvalidity": scan.uidvalidity,
         "total_matched_uid_count": scan.total_matched_uid_count,
         "partial_matched_uid_count": scan.partial_matched_uid_count,
@@ -182,6 +208,41 @@ def write_progress(progress: ScanProgress) -> None:
     print(json.dumps(asdict(progress), sort_keys=True), file=sys.stderr, flush=True)
 
 
+def write_json_evidence(path: Path, result: dict[str, Any]) -> Path:
+    """Write sanitized dry-run evidence outside the repository."""
+    resolved = path.expanduser().resolve()
+    if resolved.is_relative_to(ROOT):
+        raise ValueError("Yahoo dry-run evidence must be written outside the repository")
+    forbidden = {
+        "username",
+        "password",
+        "app_password",
+        "subject",
+        "sender",
+        "recipients",
+        "body",
+        "text_body",
+        "message_id",
+        "raw_mime",
+    }
+    present = forbidden.intersection(_nested_keys(result))
+    if present:
+        raise ValueError(f"Yahoo dry-run evidence contains forbidden fields: {', '.join(sorted(present))}")
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    resolved.write_text(json.dumps(result, indent=2, sort_keys=True, default=str) + "\n")
+    return resolved
+
+
+def _nested_keys(value: object) -> set[str]:
+    if isinstance(value, dict):
+        return {str(key) for key in value}.union(
+            *(_nested_keys(item) for item in value.values()), set()
+        )
+    if isinstance(value, (list, tuple)):
+        return set().union(*(_nested_keys(item) for item in value), set())
+    return set()
+
+
 def synchronize(
     settings: YahooImapSettings,
     database: Path,
@@ -191,7 +252,9 @@ def synchronize(
     limit: int | None,
     start_uid: int = 1,
     progress_every: int = DEFAULT_PROGRESS_EVERY,
+    verify_idempotency: bool = False,
 ) -> dict[str, Any]:
+    before = database_state(database)
     checkpoint = read_checkpoint(
         database,
         provider="yahoo",
@@ -216,6 +279,9 @@ def synchronize(
     os.environ["JOBS_DB_PATH"] = str(database)
     module = importlib.import_module("backend.main")
     imported: dict[str, Any] = module.import_yahoo_imap_messages(scan.messages)
+    idempotency_result = _verify_immediate_idempotency(
+        module, database, scan, enabled=verify_idempotency
+    )
     completed_at = datetime.now(UTC).replace(tzinfo=None)
     failures = [failure.__dict__ for failure in scan.failures] + list(imported["failures"])
     last_uid = _last_successful_uid(scan, imported, checkpoint)
@@ -236,6 +302,14 @@ def synchronize(
             failure_count=len(failures),
         ),
     )
+    stored_checkpoint = read_checkpoint(
+        database,
+        provider="yahoo",
+        account_namespace=settings.account_namespace,
+        folder=folder,
+        since_date=since_date,
+    )
+    after = database_state(database)
     return {
         "mode": "sync",
         "database": str(database),
@@ -261,8 +335,81 @@ def synchronize(
         "reconnect_count": scan.reconnect_count,
         "search_page_count": scan.search_page_count,
         "search_complete": scan.search_complete,
+        "pre_sync_database": before,
+        "post_sync_database": after,
+        "table_deltas": state_delta(before, after),
+        "checkpoint": checkpoint_evidence(stored_checkpoint),
+        "unresolved_evidence_count": after["unresolved_evidence_count"],
+        "classification_counts": after["classification_counts"],
+        "idempotency_token": idempotency_token(
+            account=settings.account_namespace,
+            folder=folder,
+            since_date=since_date,
+            uidvalidity=scan.uidvalidity,
+            first_uid=scan.first_uid,
+            last_uid=scan.last_uid_completed,
+        ),
+        "idempotency_verification": idempotency_evidence(database),
+        "immediate_second_pass": idempotency_result,
         **asdict(scan.metrics),
     }
+
+
+def _verify_immediate_idempotency(
+    module: Any, database: Path, scan: YahooImapScan, *, enabled: bool
+) -> dict[str, Any]:
+    if not enabled:
+        return {"performed": False}
+    before = database_state(database)
+    repeated: dict[str, Any] = module.import_yahoo_imap_messages(scan.messages)
+    after = database_state(database)
+    unchanged = before["checksum_sha256"] == after["checksum_sha256"]
+    passed = (
+        unchanged
+        and int(repeated["accepted_count"]) == 0
+        and int(repeated["skipped_count"]) == len(scan.messages)
+    )
+    if not passed:
+        raise RuntimeError("Immediate Yahoo sync idempotency verification failed")
+    return {
+        "performed": True,
+        "passed": True,
+        "accepted_count": 0,
+        "skipped_count": int(repeated["skipped_count"]),
+        "logical_state_unchanged": True,
+        "network_connections": 0,
+    }
+
+
+def live_preflight(arguments: argparse.Namespace, settings: YahooImapSettings) -> dict[str, Any]:
+    return preflight_live_sync(
+        arguments.database,
+        folder=arguments.folder,
+        since_date=arguments.since_date,
+        backup_metadata=arguments.backup_metadata,
+        dry_run_evidence=arguments.dry_run_evidence,
+        settings=settings,
+    )
+
+
+def live_sync_database(
+    arguments: argparse.Namespace, settings: YahooImapSettings, *, start_uid: int
+) -> Path:
+    resolved = arguments.database.expanduser().resolve()
+    if resolved != EXPECTED_LIVE_DATABASE:
+        return refuse_protected_database(resolved)
+    if not arguments.backup_metadata or not arguments.dry_run_evidence:
+        raise ValueError("Live synchronization requires backup metadata and dry-run evidence")
+    live_preflight(arguments, settings)
+    if arguments.after_uid is not None or arguments.start_uid != FIRST_LIVE_UID:
+        raise ValueError("First live synchronization requires explicit --start-uid 53290")
+    authorize_first_live_batch(
+        allow_live=arguments.allow_live_database,
+        confirmation=arguments.confirm_live_sync,
+        start_uid=start_uid,
+        limit=arguments.limit,
+    )
+    return verify_sync_database(resolved)
 
 
 def _last_successful_uid(
@@ -294,6 +441,8 @@ def main() -> None:
         )
         if arguments.list_folders:
             result: dict[str, Any] = {"folders": list(list_folders(settings))}
+        elif arguments.preflight_live:
+            result = live_preflight(arguments, settings)
         elif arguments.count_only:
             result = count_only_report(
                 scan_with_reconnect(
@@ -314,10 +463,11 @@ def main() -> None:
                     limit=arguments.limit,
                     progress_every=arguments.progress_every,
                     progress_callback=write_progress,
-                )
+                ),
+                requested_start_uid=start_uid,
             )
         else:
-            database = refuse_protected_database(arguments.database)
+            database = live_sync_database(arguments, settings, start_uid=start_uid)
             result = synchronize(
                 settings,
                 database,
@@ -326,9 +476,12 @@ def main() -> None:
                 start_uid=start_uid,
                 limit=arguments.limit,
                 progress_every=arguments.progress_every,
+                verify_idempotency=database == EXPECTED_LIVE_DATABASE,
             )
     except Exception as exc:
         raise SystemExit(f"Yahoo IMAP operation stopped: {exc}") from exc
+    if arguments.output_json:
+        write_json_evidence(arguments.output_json, result)
     print(json.dumps(result, indent=2, sort_keys=True, default=str))
 
 

@@ -1362,6 +1362,21 @@ def import_yahoo_imap_messages(messages: Iterable[YahooImapMessage]) -> dict[str
     summary = _empty_yahoo_imap_summary()
     failures: list[dict[str, object]] = []
     with Session(engine) as session:
+        batch_identities = {message.identity for message in batch}
+        existing_identities = {
+            identity
+            for identity in session.scalars(
+                select(ImportedMessage.stable_message_identity).where(
+                    ImportedMessage.stable_message_identity.in_(
+                        batch_identities
+                    )
+                )
+            )
+        }
+        if batch_identities.issubset(existing_identities):
+            summary["scanned_count"] = len(batch)
+            summary["skipped_count"] = len(batch)
+            return summary
         import_record = EmailImport(
             mailbox_name="yahoo",
             source_filename=f"imap:{batch[0].folder}",

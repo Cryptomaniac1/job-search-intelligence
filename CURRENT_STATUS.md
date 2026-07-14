@@ -20,7 +20,7 @@ the product and architecture documents remain part of the roadmap unless explici
 - Preservation-first email-to-job merge behavior and imported-record deletion protection.
 - Read-only live-database preflight, SQLite-safe backup, copy-only migration rehearsal, rollback
   verification, and duplicate-candidate reporting.
-- Historical database at Alembic revision `20260712_0005`, externalized to ignored runtime path
+- Historical database at Alembic revision `20260712_0006`, externalized to ignored runtime path
   `data/jobs.db` with canonical environment-variable overrides.
 - Deterministic, versioned, provider-agnostic email classification engine with explainable reasons
   and additive classification evidence persistence.
@@ -50,8 +50,10 @@ the product and architecture documents remain part of the roadmap unless explici
   explicit socket deadlines, bounded reconnect and same-UID retry, single-response BODYSTRUCTURE
   parsing, monotonic UID-range pagination, fetch-efficiency metrics, unambiguous batch reporting,
   tolerant HTML normalization, bounded full-message fallback for malformed BODYSTRUCTURE data,
-  and temporary-database integration. No successful Yahoo message synchronization has occurred,
-  and live database synchronization remains disabled.
+  and temporary-database integration. An offline, approval-gated production path validates the
+  exact database checksum, backup and dry-run evidence, credentials, TLS configuration,
+  confirmation token, and fixed first-batch scope. No successful Yahoo message synchronization
+  has occurred.
 
 ## Prototype
 
@@ -74,7 +76,7 @@ requirements or production reliability goals.
 ## Planned
 
 - Live Gmail API synchronization.
-- Approval-gated deployment and first real dry run for Yahoo IMAP; live Hotmail and other IMAP
+- Approval-gated first bounded Yahoo IMAP production synchronization; live Hotmail and other IMAP
   synchronization.
 - Recruiter relationship scoring, notes, reminders, and editing.
 - First-class applications, emails, companies, resumes, and offers, plus richer interview editing
