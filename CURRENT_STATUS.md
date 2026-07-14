@@ -44,6 +44,14 @@ the product and architecture documents remain part of the roadmap unless explici
   candidate CSV, machine-readable safety evidence, two-pass idempotency checks, and source
   checksum protection. Gmail and Hotmail raw exports are supported independently; Yahoo replay is
   blocked until a compatible raw-message export is available.
+- TLS-only Yahoo IMAP Jobs-folder synchronization transport with exact read-only folder selection,
+  inclusive server-side date-bounded UID search, headers-first retrieval, attachment-metadata-only
+  MIME handling, count-only search, account/folder/UID identity, date-scoped checkpoint safety,
+  explicit socket deadlines, bounded reconnect and same-UID retry, single-response BODYSTRUCTURE
+  parsing, monotonic UID-range pagination, fetch-efficiency metrics, unambiguous batch reporting,
+  tolerant HTML normalization, bounded full-message fallback for malformed BODYSTRUCTURE data,
+  and temporary-database integration. No successful Yahoo message synchronization has occurred,
+  and live database synchronization remains disabled.
 
 ## Prototype
 
@@ -66,7 +74,8 @@ requirements or production reliability goals.
 ## Planned
 
 - Live Gmail API synchronization.
-- Live Yahoo, Hotmail, and other IMAP synchronization.
+- Approval-gated deployment and first real dry run for Yahoo IMAP; live Hotmail and other IMAP
+  synchronization.
 - Recruiter relationship scoring, notes, reminders, and editing.
 - First-class applications, emails, companies, resumes, and offers, plus richer interview editing
   and calendar augmentation.

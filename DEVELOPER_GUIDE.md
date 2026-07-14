@@ -76,6 +76,10 @@ interview and offer entities. Revision `20260712_0005` adds interview aggregates
 event evidence without backfill. The deployed live database is at `20260712_0005` following the
 approval-gated Sprint 7.5 migration.
 
+Revision `20260712_0006` adds Yahoo IMAP checkpoints and immutable UID transport metadata. It is
+tested only on temporary databases during Sprint 9. The live database remains at `20260712_0005`
+until a separately approved migration rehearsal and live migration.
+
 The live runtime database remains at its currently deployed revision until an explicitly approved
 copy rehearsal and live migration. Feature development and tests never upgrade `data/jobs.db`.
 
@@ -193,6 +197,97 @@ Provider inputs are independent and repeatable; omit providers that are unavaila
 The existing structured Yahoo opportunity/application export is not compatible and must not be
 treated as raw email. Use `--cleanup` only when the disposable database and reports no longer need
 manual review; otherwise they are preserved outside the repository.
+
+## Yahoo IMAP Jobs-folder synchronization
+
+Yahoo IMAP uses an app password only. Never provide the primary Yahoo password. Credentials are
+read only from the current process environment and must never be placed in an `.env` file,
+database, command-line argument, log, fixture, screenshot, or documentation:
+
+```bash
+export YAHOO_IMAP_USERNAME="your-yahoo-address"
+export YAHOO_IMAP_APP_PASSWORD="your-yahoo-app-password"
+export YAHOO_IMAP_FOLDER="job"
+```
+
+Discover the exact server folder name without selecting it for writes:
+
+```bash
+backend/.venv/bin/python scripts/sync_yahoo_imap.py --list-folders
+```
+
+Run a read-only metadata and classification preview. The mailbox is selected with `readonly=True`,
+and every fetch uses `BODY.PEEK`; no flags, moves, deletes, or expunges are issued:
+
+```bash
+backend/.venv/bin/python scripts/sync_yahoo_imap.py \
+  --folder job --since-date 2024-07-01 --count-only
+```
+
+Count-only performs paginated, date-bounded UID search and fetches no message headers or bodies.
+It reports first/last UID, search page count, and whether completeness was proven. After reviewing
+that count, use a bounded dry run:
+
+```bash
+backend/.venv/bin/python scripts/sync_yahoo_imap.py \
+  --folder job --since-date 2024-07-01 --dry-run --limit 100 \
+  --connect-timeout 30 --read-timeout 60 \
+  --progress-every 100 --max-mime-parts 50 \
+  --max-fallback-message-bytes 10485760
+```
+
+Resume after a completed batch without processing earlier UIDs:
+
+```bash
+backend/.venv/bin/python scripts/sync_yahoo_imap.py \
+  --folder job --since-date 2024-07-01 --after-uid LAST_COMPLETED_UID \
+  --dry-run --limit 100 --connect-timeout 30 --read-timeout 60
+```
+
+`--start-uid N` starts inclusively at `N`; `--after-uid N` starts at `N + 1`. Reports distinguish
+complete search total, selected batch, attempted processing, successful completion, accepted
+candidates, and failures. Metrics count search, header, BODYSTRUCTURE, and body fetch commands.
+
+Temporary-database integration requires an explicit database already migrated to `0006`:
+
+```bash
+JOBS_DB_PATH=/tmp/yahoo-sync.db backend/.venv/bin/python -m alembic upgrade 20260712_0006
+backend/.venv/bin/python scripts/sync_yahoo_imap.py \
+  --folder job --since-date 2024-07-01 --database /tmp/yahoo-sync.db --sync
+```
+
+The Sprint 9 CLI refuses `data/jobs.db` and both legacy runtime paths unconditionally. No live-write
+override exists yet. IMAP identity uses Yahoo provider, normalized account namespace, exact folder,
+UIDVALIDITY, and UID; Message-ID remains separate evidence. The client issues the inclusive,
+server-side search `UID SEARCH SINCE 01-Jul-2024 UID <checkpoint>:*` before fetching any headers or
+bodies. IMAP `SINCE` uses Yahoo's IMAP internal date, which may differ from the sender-provided
+`Date` header. Both dates and the requested since-date are retained for audit, and the `Date`
+header never overrides the server search result. Checkpoints are isolated by provider, account,
+folder, and requested since-date, then advance by UID within that scope. A UIDVALIDITY change stops
+before fetch and requires an explicit future rescan decision. Broken pipes trigger a bounded
+reconnect, read-only folder reselection, UIDVALIDITY verification, and retry of the same UID.
+Partial MIME or processing failures are reported, the checkpoint remains before the first failed
+UID, and repeated successful messages are idempotent. There is no background polling.
+
+The connect timeout passed to `IMAP4_SSL` bounds connection establishment, TLS setup, and the
+initial server greeting. Immediately after construction, the read timeout is applied directly to
+the underlying IMAP SSL socket, so login, folder operations, UID search, every header/body/MIME
+fetch, NOOP, logout, and reconnect cannot wait indefinitely. A MIME timeout discards the
+connection and retries the same UID once after read-only reselection and UIDVALIDITY verification.
+A second timeout creates one failure for that UID; the following UID starts with a fresh
+connection. Multipart messages use one BODYSTRUCTURE fetch, bounded local parsing, and one fetch of
+the preferred non-attachment text/plain part or an HTML fallback. Attachment bodies are never
+fetched. `--max-mime-parts` is a parser-complexity guard and never drives numbered network probing.
+Progress uses counters and UIDs only; it never includes message content, identity, or credentials.
+
+BODYSTRUCTURE parsing accepts nested lists, quoted and escaped strings, literals, NIL values,
+language and body-location extensions, dispositions, and encoded MIME parameters. If the structure
+is malformed or exceeds the local complexity guard, the client makes one bounded full-message
+fallback request using `BODY.PEEK[]<0.N>`, where `N` is one byte above
+`--max-fallback-message-bytes`. The default is 10 MiB. A response over that limit creates one UID
+failure and processing continues. The full message is parsed locally without executing HTML,
+loading remote content, or separately fetching attachments. Fallback metrics distinguish parser
+failures, attempts, successes, failures, and oversized messages.
 
 ## Import identity and merge policy
 
