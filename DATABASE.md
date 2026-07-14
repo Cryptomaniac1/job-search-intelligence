@@ -93,6 +93,24 @@ Downgrading after interview evidence has been written would drop both Interview 
 and destroy that evidence. After either table contains data, use a verified backup or a separately
 reviewed evidence-preserving migration plan instead of downgrading.
 
+### Yahoo IMAP synchronization tables
+
+Revision `20260712_0006` additively creates `imap_sync_checkpoints` and
+`imap_message_metadata`. Checkpoints are unique by provider, normalized account namespace, exact
+folder, and requested `since_date`. They record UIDVALIDITY, the last successfully processed UID,
+run timestamps, and scanned/accepted/skipped/failure counts. This keeps different date-bounded
+scopes independent while retaining UID-based incremental progress. A changed UIDVALIDITY is never
+accepted automatically.
+
+Message metadata preserves the stable transport identity, original normalized message fields,
+recipients, folder, UIDVALIDITY, UID, the Yahoo IMAP internal date, sender-provided `Date` header,
+requested since-date, HTML-fallback marker, and attachment metadata without attachment bodies. It
+references immutable `imported_messages` provenance and is unique both by message identity and
+provider/account/folder/UID namespace.
+
+The migration does not backfill or modify historical rows. The live database remains at
+`20260712_0005`; revision `0006` is temporary-database-only until separately approved.
+
 ## Migration history
 
 - `20260712_0001`: baseline representation of `jobs` and `email_imports`.
@@ -100,6 +118,7 @@ reviewed evidence-preserving migration plan instead of downgrading.
 - `20260712_0003`: deterministic email classification evidence.
 - `20260712_0004`: deterministic Recruiter CRM foundation and job relationships.
 - `20260712_0005`: deterministic Interview Pipeline aggregates and immutable event evidence.
+- `20260712_0006`: Yahoo IMAP checkpoints and immutable UID transport metadata.
 
 The live runtime database was upgraded from `20260712_0002` to `20260712_0003` on 2026-07-12
 through the approval-gated live-migration workflow. The migration preserved 7,718 `jobs` rows,

@@ -26,7 +26,7 @@ from backend.app.database.paths import (
 LIVE_DATABASE = DEFAULT_DATABASE_PATH
 PROTECTED_DATABASES = {DEFAULT_DATABASE_PATH, LEGACY_DATABASE_PATH}
 BASELINE_REVISION = "20260712_0001"
-HEAD_REVISION = "20260712_0005"
+HEAD_REVISION = "20260712_0006"
 
 EXPECTED_COLUMNS = {
     "jobs": {
@@ -285,6 +285,8 @@ def _check_tables_and_indexes(
         "recruiter_job_links",
         "interviews",
         "interview_events",
+        "imap_sync_checkpoints",
+        "imap_message_metadata",
         "alembic_version",
     }
     unexpected_tables = sorted(tables - allowed)

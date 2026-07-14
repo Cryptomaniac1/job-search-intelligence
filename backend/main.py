@@ -9,7 +9,7 @@ import re
 import sqlite3
 import tempfile
 from collections.abc import Iterable
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from email.header import decode_header, make_header
 from email.message import Message
 from email.utils import parseaddr
@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, create_engine, select
+from sqlalchemy import Boolean, Date, DateTime, Float, Integer, String, Text, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 try:
@@ -49,6 +49,7 @@ try:
         extract_recruiter,
         normalize_company as normalize_recruiter_company,
     )
+    from backend.app.services.yahoo_imap import YahooImapMessage
 except ModuleNotFoundError:  # Supports the existing `cd backend && uvicorn main:app` command.
     from app.database.paths import initialize_database_if_missing, resolve_database_path
     from app.services.email_classification import ClassificationResult, EmailType, classify_email
@@ -64,6 +65,7 @@ except ModuleNotFoundError:  # Supports the existing `cd backend && uvicorn main
         extract_recruiter,
         normalize_company as normalize_recruiter_company,
     )
+    from app.services.yahoo_imap import YahooImapMessage
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = resolve_database_path()
@@ -255,6 +257,48 @@ class InterviewEvent(ProvenanceBase):
     meeting_url: Mapped[Optional[str]] = mapped_column(String(2000), nullable=True)
     evidence_json: Mapped[str] = mapped_column(Text)
     extractor_version: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class ImapSyncCheckpoint(ProvenanceBase):
+    __tablename__ = "imap_sync_checkpoints"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    provider: Mapped[str] = mapped_column(String(50))
+    account_namespace: Mapped[str] = mapped_column(String(500))
+    folder: Mapped[str] = mapped_column(String(1000))
+    since_date: Mapped[date] = mapped_column(Date)
+    uidvalidity: Mapped[str] = mapped_column(String(100))
+    last_successful_uid: Mapped[int] = mapped_column(Integer)
+    sync_started_at: Mapped[datetime] = mapped_column(DateTime)
+    sync_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    scanned_count: Mapped[int] = mapped_column(Integer)
+    accepted_count: Mapped[int] = mapped_column(Integer)
+    skipped_count: Mapped[int] = mapped_column(Integer)
+    failure_count: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime)
+
+
+class ImapMessageMetadata(ProvenanceBase):
+    __tablename__ = "imap_message_metadata"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    message_identity: Mapped[str] = mapped_column(String(67))
+    provider: Mapped[str] = mapped_column(String(50))
+    account_namespace: Mapped[str] = mapped_column(String(500))
+    folder: Mapped[str] = mapped_column(String(1000))
+    uidvalidity: Mapped[str] = mapped_column(String(100))
+    imap_uid: Mapped[int] = mapped_column(Integer)
+    subject: Mapped[str] = mapped_column(Text)
+    sender: Mapped[str] = mapped_column(Text)
+    received_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    imap_internal_date: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    requested_since_date: Mapped[date] = mapped_column(Date)
+    text_body: Mapped[str] = mapped_column(Text)
+    html_fallback_used: Mapped[bool] = mapped_column(Boolean)
+    recipients_json: Mapped[str] = mapped_column(Text)
+    attachments_json: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime)
 
 Base.metadata.create_all(engine)
@@ -1307,6 +1351,198 @@ def _finish_historical_import(
     source_import.confirmations_found = 0
     source_import.matched_jobs = int(summary["linked_events"])
     source_import.unmatched_jobs = int(summary["unmatched_events"])
+
+
+def import_yahoo_imap_messages(messages: Iterable[YahooImapMessage]) -> dict[str, object]:
+    """Feed Yahoo IMAP messages through the existing deterministic evidence pipeline."""
+    batch = list(messages)
+    if not batch:
+        return _empty_yahoo_imap_summary()
+    _validate_yahoo_imap_batch(batch)
+    summary = _empty_yahoo_imap_summary()
+    failures: list[dict[str, object]] = []
+    with Session(engine) as session:
+        import_record = EmailImport(
+            mailbox_name="yahoo",
+            source_filename=f"imap:{batch[0].folder}",
+        )
+        session.add(import_record)
+        session.flush()
+        for message in batch:
+            if imported_message_exists(session, message.identity):
+                summary["skipped_count"] = int(summary["skipped_count"]) + 1
+                continue
+            try:
+                with session.begin_nested():
+                    application, matched = _record_yahoo_imap_message(
+                        session, import_record, message
+                    )
+                summary["accepted_count"] = int(summary["accepted_count"]) + 1
+                if application:
+                    key = "matched_jobs" if matched else "unmatched_jobs"
+                    summary[key] = int(summary[key]) + 1
+            except Exception as exc:
+                failures.append({"uid": message.uid, "error": str(exc)})
+        summary["scanned_count"] = len(batch)
+        summary["failure_count"] = len(failures)
+        summary["failures"] = failures
+        import_record.total_messages = len(batch)
+        import_record.confirmations_found = int(summary["accepted_count"])
+        import_record.matched_jobs = int(summary["matched_jobs"])
+        import_record.unmatched_jobs = int(summary["unmatched_jobs"])
+        session.commit()
+    return summary
+
+
+def _empty_yahoo_imap_summary() -> dict[str, object]:
+    return {
+        "provider": "yahoo",
+        "scanned_count": 0,
+        "accepted_count": 0,
+        "skipped_count": 0,
+        "failure_count": 0,
+        "matched_jobs": 0,
+        "unmatched_jobs": 0,
+        "failures": [],
+    }
+
+
+def _validate_yahoo_imap_batch(messages: list[YahooImapMessage]) -> None:
+    first = messages[0]
+    if any(
+        message.account_namespace != first.account_namespace
+        or message.folder != first.folder
+        or message.uidvalidity != first.uidvalidity
+        for message in messages
+    ):
+        raise ValueError("Yahoo IMAP batches must use one account, folder, and UIDVALIDITY")
+
+
+def _record_yahoo_imap_message(
+    session: Session, import_record: EmailImport, message: YahooImapMessage
+) -> tuple[bool, bool]:
+    subject = message.subject
+    sender = message.sender
+    body = message.text_body
+    combined = f"{subject} {body}"
+    classification = classify_email(subject=subject, sender=sender, body=body)
+    is_application = classification.classification == EmailType.APPLICATION_CONFIRMATION
+    job: Optional[Job] = None
+    matched = False
+    if is_application:
+        company, title = extract_company_and_title(subject, body, sender)
+        urls = extract_urls(combined)
+        job, _, matched = match_or_create_application(
+            session,
+            mailbox_name="yahoo",
+            company=company,
+            title=title,
+            applied_at=message.received_at,
+            job_url=urls[0] if urls else "",
+            job_id=extract_job_id(combined),
+            requisition_id=extract_requisition_id(combined),
+            ats_platform=infer_ats(combined),
+            message_id=message.message_id,
+            stable_identity=message.identity,
+        )
+    recruiter_evidence = extract_recruiter(
+        classification=classification.classification.value,
+        sender=sender,
+        subject=subject,
+        body=body,
+    )
+    interview_evidence = extract_interview(
+        classification=classification.classification.value,
+        subject=subject,
+        body=body,
+    )
+    if recruiter_evidence or interview_evidence:
+        job = find_explicit_job(session, combined, "yahoo")
+    session.flush()
+    imported = record_imported_message(
+        session,
+        provider="yahoo",
+        source_import_id=import_record.id,
+        identity=message.identity,
+        original_message_id=message.message_id,
+        job_id=job.id if job else None,
+        outcome=("matched" if matched else "unmatched") if job else "classified",
+    )
+    classification_record = record_email_classification(
+        session,
+        identity=message.identity,
+        job_id=job.id if job else None,
+        result=classification,
+    )
+    session.flush()
+    recruiter = _record_yahoo_imap_recruiter(
+        session, message, classification.classification.value, job, recruiter_evidence
+    )
+    if interview_evidence:
+        record_interview_evidence(
+            session,
+            evidence=interview_evidence,
+            identity=message.identity,
+            classification_id=classification_record.id,
+            provider="yahoo",
+            job=job,
+            recruiter=recruiter,
+            observed_at=message.received_at or datetime.utcnow(),
+        )
+    _record_imap_metadata(session, message)
+    imported.error = ""
+    return is_application, matched
+
+
+def _record_yahoo_imap_recruiter(
+    session: Session,
+    message: YahooImapMessage,
+    classification: str,
+    job: Optional[Job],
+    evidence: Optional[RecruiterEvidence],
+) -> Optional[Recruiter]:
+    if evidence:
+        return record_message_recruiter(
+            session,
+            evidence=evidence,
+            identity=message.identity,
+            job=job,
+            observed_at=message.received_at or datetime.utcnow(),
+        )
+    if classification.startswith("INTERVIEW_") or classification.startswith("ASSESSMENT_"):
+        return find_message_recruiter(session, message.sender, job)
+    return None
+
+
+def _record_imap_metadata(session: Session, message: YahooImapMessage) -> None:
+    attachments = [
+        {
+            "filename": item.filename,
+            "content_type": item.content_type,
+            "disposition": item.disposition,
+        }
+        for item in message.attachments
+    ]
+    session.add(
+        ImapMessageMetadata(
+            message_identity=message.identity,
+            provider="yahoo",
+            account_namespace=message.account_namespace,
+            folder=message.folder,
+            uidvalidity=message.uidvalidity,
+            imap_uid=message.uid,
+            subject=message.subject,
+            sender=message.sender,
+            received_at=message.received_at,
+            imap_internal_date=message.imap_internal_date,
+            requested_since_date=message.requested_since_date,
+            text_body=message.text_body,
+            html_fallback_used=message.html_fallback_used,
+            recipients_json=json.dumps(message.recipients, separators=(",", ":")),
+            attachments_json=json.dumps(attachments, separators=(",", ":")),
+            created_at=datetime.utcnow(),
+        )
+    )
 
 @app.get("/health")
 def health():

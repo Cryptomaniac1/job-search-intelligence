@@ -5,6 +5,8 @@ backend/
   app/
     api/
     services/
+      yahoo_imap.py       # TLS-only read-only transport and MIME normalization
+      imap_checkpoint.py  # UID/UIDVALIDITY checkpoint persistence
     models/
     schemas/
     database/
@@ -25,6 +27,7 @@ scripts/
   import_historical_interviews.py # protected Gmail/Hotmail/Yahoo interview replay
   rehearse_historical_interviews.py # copy-only two-pass replay and evidence workflow
   start_interview_demo.py # disposable sanitized Interview Pipeline dashboard
+  sync_yahoo_imap.py      # folder listing, dry-run, and protected temporary sync
 tests/
   fixtures/interview/     # sanitized deterministic extraction cases
 extension/

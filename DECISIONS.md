@@ -100,3 +100,34 @@ UTC.
 Decision: a job must be identified deterministically before an interview aggregate is created.
 Company-only and cross-account matching are prohibited. Unresolved messages remain event evidence.
 Sprint 7 performs no historical backfill and uses no LLM, embedding, or external API.
+
+---
+
+## Yahoo IMAP synchronization
+
+Decision: Yahoo synchronization uses IMAP over certificate-verified TLS on port 993 and an app
+password supplied only through process environment variables. Plaintext IMAP, primary-password
+handling, credential persistence, and credential logging are prohibited.
+
+Decision: mailbox access is read-only and exact-folder scoped. Synchronization first applies an
+inclusive server-side IMAP `SINCE` filter using the server internal date, then uses UID and
+UIDVALIDITY for identity and incremental progress within that date scope. The sender `Date` header
+is audit evidence and never locally excludes a server match. The client fetches headers before
+required text parts, records attachment metadata without downloading attachment bodies, and never
+issues flag, move, delete, or expunge commands.
+
+Decision: transport identity includes provider, account namespace, folder, UIDVALIDITY, and UID.
+Message-ID remains separate evidence. UIDVALIDITY changes stop synchronization and require an
+explicit rescan decision. Checkpoints include the requested since-date so changing scope cannot
+silently skip messages. A broken connection is discarded and rebuilt before retrying the same UID.
+Socket connect and read deadlines apply to every IMAP operation. Multipart layout is obtained with
+one BODYSTRUCTURE response and parsed locally under a configurable complexity cap; sequential
+numbered MIME probing is prohibited. Count-only mode performs paginated UID-range search without
+fetching message data. Full pages advance to the highest UID plus one; repeated or non-monotonic
+pages stop with `search_complete: false`. Operational progress contains counters and UIDs only.
+Sprint 9 has no background polling and no live-database override.
+
+Decision: malformed or over-complex BODYSTRUCTURE data uses one bounded partial full-message
+fallback, defaulting to 10 MiB plus one detection byte. Oversized or locally unparseable fallbacks
+create one failure for the UID and do not stop the batch. HTML parsing tolerates nonstandard marked
+sections as inert text; it never interprets them as IMAP state or executes their contents.

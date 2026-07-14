@@ -26,7 +26,7 @@ from .historical_interview_import import (
 )
 from .recruiter_crm import extract_recruiter
 
-EXPECTED_REVISION = "20260712_0005"
+EXPECTED_REVISIONS = {"20260712_0005", "20260712_0006"}
 TABLES = (
     "jobs",
     "email_imports",
@@ -39,7 +39,8 @@ TABLES = (
     "interviews",
     "interview_events",
 )
-ADDITIVE_TABLES = frozenset(TABLES) - {"jobs"}
+OPTIONAL_TABLES = ("imap_sync_checkpoints", "imap_message_metadata")
+ADDITIVE_TABLES = frozenset(TABLES + OPTIONAL_TABLES) - {"jobs"}
 CSV_FIELDS = (
     "provider",
     "source",
@@ -102,9 +103,10 @@ def validate_source_database(path: Path) -> Path:
     if not resolved.is_file():
         raise ValueError(f"Source database does not exist: {resolved}")
     evidence = capture_database_evidence(resolved)
-    if evidence.revision != EXPECTED_REVISION:
+    if evidence.revision not in EXPECTED_REVISIONS:
         raise ValueError(
-            f"Source database must be at {EXPECTED_REVISION}; found {evidence.revision or 'none'}"
+            "Source database must include the Interview Pipeline schema; "
+            f"found {evidence.revision or 'none'}"
         )
     return resolved
 
@@ -138,6 +140,13 @@ def capture_database_evidence(
     with sqlite3.connect(uri, uri=True) as connection:
         connection.row_factory = sqlite3.Row
         revision_row = connection.execute("SELECT version_num FROM alembic_version").fetchone()
+        existing_tables = {
+            str(row[0])
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        evidence_tables = TABLES + tuple(
+            table for table in OPTIONAL_TABLES if table in existing_tables
+        )
         tables = {
             table: _table_evidence(
                 connection,
@@ -150,7 +159,7 @@ def capture_database_evidence(
                     else (baseline_maximum_ids or {}).get(table)
                 ),
             )
-            for table in TABLES
+            for table in evidence_tables
         }
         integrity = str(connection.execute("PRAGMA integrity_check").fetchone()[0])
         foreign_keys = tuple(
@@ -366,6 +375,7 @@ def _pre_existing_rows_unchanged(before: DatabaseEvidence, after: DatabaseEviden
         all(
             before.tables[table].existing_rows_digest == after.tables[table].existing_rows_digest
             for table in ADDITIVE_TABLES
+            if table in before.tables and table in after.tables
         )
         and before.tables["jobs"].digest == after.tables["jobs"].digest
     )
