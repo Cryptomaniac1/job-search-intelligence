@@ -108,8 +108,10 @@ requested since-date, HTML-fallback marker, and attachment metadata without atta
 references immutable `imported_messages` provenance and is unique both by message identity and
 provider/account/folder/UID namespace.
 
-The migration does not backfill or modify historical rows. The live database remains at
-`20260712_0005`; revision `0006` is temporary-database-only until separately approved.
+The migration does not backfill or modify historical rows. On 2026-07-13 local time / 2026-07-14
+UTC, the live database was approval-gated and upgraded to `20260712_0006`. Historical counts and
+logical digests were preserved; both new tables began with zero rows. Its verified post-migration
+SHA-256 is `088e96d7d518815ef5b1de757a6e7d6aaff9695b9d4706f8d25602952c4a91b0`.
 
 ## Migration history
 

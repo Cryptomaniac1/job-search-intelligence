@@ -1153,14 +1153,16 @@ def test_checkpoint_is_isolated_by_since_date(isolated_app: tuple[Any, Path]) ->
     assert second_stored is not None and second_stored.last_successful_uid == 80
 
 
-def yahoo_message(uid: int = 1, account: str = "person@yahoo.com") -> YahooImapMessage:
+def yahoo_message(
+    uid: int = 1, account: str = "person@yahoo.com", folder: str = "Jobs"
+) -> YahooImapMessage:
     identity = imap_message_identity(
-        account_namespace=account, folder="Jobs", uidvalidity="700", uid=uid
+        account_namespace=account, folder=folder, uidvalidity="700", uid=uid
     )
     return YahooImapMessage(
         uid=uid,
         uidvalidity="700",
-        folder="Jobs",
+        folder=folder,
         account_namespace=account,
         message_id=f"message-{uid}@example.invalid",
         subject="Interview invitation",
@@ -1216,23 +1218,23 @@ def test_temporary_database_sync_records_checkpoint(
     from scripts import sync_yahoo_imap
 
     _, database = isolated_app
-    message = yahoo_message(uid=9)
+    message = yahoo_message(uid=53290, folder="job")
     scan = YahooImapScan(
-        folder="Jobs",
+        folder="job",
         since_date=SINCE_DATE,
         uidvalidity="700",
         messages=(message,),
         failures=(),
-        highest_contiguous_uid=9,
+        highest_contiguous_uid=53290,
         total_matched_uid_count=1,
         partial_matched_uid_count=1,
         batch_selected_count=1,
         processed_count=1,
         completed_count=1,
-        first_uid=9,
-        last_uid=9,
-        last_uid_attempted=9,
-        last_uid_completed=9,
+        first_uid=53290,
+        last_uid=53290,
+        last_uid_attempted=53290,
+        last_uid_completed=53290,
         search_page_count=1,
         search_complete=True,
         reconnect_count=0,
@@ -1241,19 +1243,57 @@ def test_temporary_database_sync_records_checkpoint(
     monkeypatch.setattr(sync_yahoo_imap, "scan_with_reconnect", lambda *args, **kwargs: scan)
 
     result = sync_yahoo_imap.synchronize(
-        settings(), database, folder="Jobs", since_date=SINCE_DATE, limit=25
+        settings(),
+        database,
+        folder="job",
+        since_date=SINCE_DATE,
+        limit=100,
+        verify_idempotency=True,
     )
+    with sqlite3.connect(database) as connection:
+        first_counts = {
+            table: connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+            for table in (
+                "email_imports",
+                "imported_messages",
+                "email_classifications",
+                "recruiters",
+                "recruiter_email_addresses",
+                "interviews",
+                "interview_events",
+                "imap_message_metadata",
+            )
+        }
+    repeated = sync_yahoo_imap.synchronize(
+        settings(), database, folder="job", since_date=SINCE_DATE, limit=100
+    )
+    with sqlite3.connect(database) as connection:
+        second_counts = {
+            table: connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+            for table in first_counts
+        }
     checkpoint = read_checkpoint(
         database,
         provider="yahoo",
         account_namespace="person@yahoo.com",
-        folder="Jobs",
+        folder="job",
         since_date=SINCE_DATE,
     )
 
     assert result["accepted_candidates"] == 1
     assert result["mailbox_mutations"] == 0
-    assert checkpoint is not None and checkpoint.last_successful_uid == 9
+    assert (
+        result["pre_sync_database"]["checksum_sha256"]
+        != result["post_sync_database"]["checksum_sha256"]
+    )
+    assert result["table_deltas"]["imported_messages"] == 1
+    assert result["idempotency_verification"]["passed"] is True
+    assert result["idempotency_token"]
+    assert result["immediate_second_pass"]["passed"] is True
+    assert repeated["accepted_candidates"] == 0
+    assert repeated["skipped_count"] == 1
+    assert first_counts == second_counts
+    assert checkpoint is not None and checkpoint.last_successful_uid == 53290
 
 
 def test_cli_refuses_live_database_before_connection() -> None:
@@ -1283,7 +1323,7 @@ def test_cli_refuses_live_database_before_connection() -> None:
     )
 
     assert completed.returncode != 0
-    assert "not enabled in Sprint 9" in completed.stderr
+    assert "backup metadata and dry-run evidence" in completed.stderr
     assert "not-a-real-secret" not in completed.stderr
 
 

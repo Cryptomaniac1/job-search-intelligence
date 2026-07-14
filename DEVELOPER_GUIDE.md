@@ -73,12 +73,10 @@ The baseline revision is `20260712_0001`. Revision `20260712_0002` adds imported
 and provenance. Revision `20260712_0003` adds deterministic classification evidence. Revision
 `20260712_0004` adds the Recruiter CRM foundation without changing historical job rows or creating
 interview and offer entities. Revision `20260712_0005` adds interview aggregates and immutable
-event evidence without backfill. The deployed live database is at `20260712_0005` following the
-approval-gated Sprint 7.5 migration.
+event evidence without backfill.
 
 Revision `20260712_0006` adds Yahoo IMAP checkpoints and immutable UID transport metadata. It is
-tested only on temporary databases during Sprint 9. The live database remains at `20260712_0005`
-until a separately approved migration rehearsal and live migration.
+deployed on the live database following the approval-gated Sprint 10 rehearsal and migration.
 
 The live runtime database remains at its currently deployed revision until an explicitly approved
 copy rehearsal and live migration. Feature development and tests never upgrade `data/jobs.db`.
@@ -233,8 +231,12 @@ backend/.venv/bin/python scripts/sync_yahoo_imap.py \
   --folder job --since-date 2024-07-01 --dry-run --limit 100 \
   --connect-timeout 30 --read-timeout 60 \
   --progress-every 100 --max-mime-parts 50 \
-  --max-fallback-message-bytes 10485760
+  --max-fallback-message-bytes 10485760 \
+  --output-json /absolute/external/path/yahoo-dry-run.json
 ```
+
+`--output-json` is available only for dry runs, refuses repository paths, and writes the same
+sanitized aggregate result printed to stdout. It never includes message content or credentials.
 
 Resume after a completed batch without processing earlier UIDs:
 
@@ -256,8 +258,37 @@ backend/.venv/bin/python scripts/sync_yahoo_imap.py \
   --folder job --since-date 2024-07-01 --database /tmp/yahoo-sync.db --sync
 ```
 
-The Sprint 9 CLI refuses `data/jobs.db` and both legacy runtime paths unconditionally. No live-write
-override exists yet. IMAP identity uses Yahoo provider, normalized account namespace, exact folder,
+Sprint 10 keeps `data/jobs.db` protected unless every offline approval gate passes. Validate the
+exact live database, revision, checksum, verified pre-migration backup, approved dry-run evidence,
+credentials, and TLS configuration without opening a Yahoo connection or writing the database:
+
+```bash
+backend/.venv/bin/python scripts/sync_yahoo_imap.py \
+  --folder job --since-date 2024-07-01 \
+  --database /Users/solovatmacpro16/Downloads/job-search-intelligence/data/jobs.db \
+  --preflight-live \
+  --backup-metadata /Users/solovatmacpro16/Documents/job-intelligence-backups/sprint-10/pre-migration/jobs-20260714T004251Z.metadata.json \
+  --dry-run-evidence /absolute/path/to/approved-yahoo-dry-run.json
+```
+
+The first live batch is additionally locked to UID `53290`, exactly 100 messages, and the literal
+confirmation token `YAHOO-LIVE-SYNC`. A live run is never implied by successful preflight:
+
+```bash
+backend/.venv/bin/python scripts/sync_yahoo_imap.py \
+  --folder job --since-date 2024-07-01 --start-uid 53290 --limit 100 \
+  --database /Users/solovatmacpro16/Downloads/job-search-intelligence/data/jobs.db \
+  --sync --allow-live-database --confirm-live-sync YAHOO-LIVE-SYNC \
+  --backup-metadata /Users/solovatmacpro16/Documents/job-intelligence-backups/sprint-10/pre-migration/jobs-20260714T004251Z.metadata.json \
+  --dry-run-evidence /absolute/path/to/approved-yahoo-dry-run.json
+```
+
+The production report includes pre/post checksums and database health, row deltas, checkpoint,
+classification and unresolved counts, UID progress, a run identifier, and an immediate second
+in-memory import pass proving duplicate evidence is not inserted. The checkpoint timestamp is the
+only expected audit mutation from that verification pass.
+
+IMAP identity uses Yahoo provider, normalized account namespace, exact folder,
 UIDVALIDITY, and UID; Message-ID remains separate evidence. The client issues the inclusive,
 server-side search `UID SEARCH SINCE 01-Jul-2024 UID <checkpoint>:*` before fetching any headers or
 bodies. IMAP `SINCE` uses Yahoo's IMAP internal date, which may differ from the sender-provided

@@ -23,6 +23,8 @@ from html.parser import HTMLParser
 from typing import Any, Protocol, cast
 from urllib.parse import unquote_to_bytes
 
+import certifi
+
 from .email_classification import EmailType, classify_email
 from .import_identity import normalize_text
 
@@ -64,6 +66,14 @@ class ImapConnection(Protocol):
 
 ConnectionFactory = Callable[..., ImapConnection]
 DEFAULT_CONNECTION_FACTORY = cast(ConnectionFactory, imaplib.IMAP4_SSL)
+
+
+def create_verified_tls_context() -> ssl.SSLContext:
+    """Build a server-auth TLS context with a deterministic CA bundle."""
+    context = ssl.create_default_context(cafile=certifi.where())
+    if context.verify_mode != ssl.CERT_REQUIRED or not context.check_hostname:
+        raise RuntimeError("Yahoo IMAP TLS verification could not be enabled")
+    return context
 
 
 @dataclass(frozen=True)
@@ -615,7 +625,7 @@ class YahooImapClient:
         raise RuntimeError(f"Yahoo IMAP returned no data for UID {uid}")
 
     def _connect(self) -> None:
-        context = ssl.create_default_context()
+        context = create_verified_tls_context()
         self.connection = self.connection_factory(
             self.settings.host,
             self.settings.port,
