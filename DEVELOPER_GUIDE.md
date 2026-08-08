@@ -284,9 +284,51 @@ backend/.venv/bin/python scripts/sync_yahoo_imap.py \
 ```
 
 The production report includes pre/post checksums and database health, row deltas, checkpoint,
-classification and unresolved counts, UID progress, a run identifier, and an immediate second
-in-memory import pass proving duplicate evidence is not inserted. The checkpoint timestamp is the
-only expected audit mutation from that verification pass.
+classification and unresolved counts, UID progress, a run identifier, and an immediate read-only
+evidence pass proving every candidate has stable provenance, classification, metadata, and
+relationship links. Verification opens SQLite in read-only/query-only mode and never invokes
+normal persistence code, creates an import row, or updates timestamps. The checkpoint timestamp is
+the only expected audit mutation after verification succeeds.
+
+### Sprint 10.1 incident analysis and recovery
+
+The first production attempt is preserved at checksum
+`e82d1fa0e4e751ec14b36cf82298e0931c81631698704c0d1152bae7bfe52bc1`. Do not run the normal sync
+command against it. Analyze the incident without credentials, Yahoo access, or database writes:
+
+```bash
+backend/.venv/bin/python scripts/analyze_yahoo_incident.py \
+  --database /Users/solovatmacpro16/Downloads/job-search-intelligence/data/jobs.db \
+  --dry-run-evidence /Users/solovatmacpro16/Documents/job-intelligence-backups/sprint-10/yahoo-dry-run/yahoo-dry-run-53290-100.json \
+  --output-json /Users/solovatmacpro16/Documents/job-intelligence-backups/sprint-10-1-idempotency-incident/recovery-analysis.json
+```
+
+Rehearse scoped rollback only on a disposable copy; the command refuses the live database:
+
+```bash
+backend/.venv/bin/python scripts/analyze_yahoo_incident.py \
+  --database /Users/solovatmacpro16/Documents/job-intelligence-backups/sprint-10-1-idempotency-incident/jobs-20260714T060631Z.sqlite3 \
+  --recovery-plan \
+  --disposable-copy /tmp/yahoo-incident-recovery.sqlite3 \
+  --rollback-disposable
+```
+
+After that copy has been reduced to the verified 7,718-job/four-import baseline, a future approved
+rehearsal can rebuild the entire 100-UID batch against only the disposable database and require
+the same read-only verification used for production:
+
+```bash
+backend/.venv/bin/python scripts/sync_yahoo_imap.py \
+  --folder job --since-date 2024-07-01 --start-uid 53290 --limit 100 \
+  --database /tmp/yahoo-incident-recovery.sqlite3 --sync --verify-idempotency
+```
+
+Future recovery is locked to UIDs `53314`, `53336`, `53355`, `53375`, and `53386`, the incident
+checksum, the verified revision-`0006` incident backup, the approved dry-run evidence, and token
+`YAHOO-INCIDENT-RECOVERY`. First run `scripts/recover_yahoo_incident.py` with `--preflight`; use
+`--recover-missing` only in a separately approved live-recovery task. Recovery fetches only those
+UIDs, records cross-account identifier conflicts without creating jobs, verifies the five rows
+read-only, and advances the checkpoint only after all 100 original UIDs are represented.
 
 IMAP identity uses Yahoo provider, normalized account namespace, exact folder,
 UIDVALIDITY, and UID; Message-ID remains separate evidence. The client issues the inclusive,

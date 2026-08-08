@@ -1,0 +1,17 @@
+{
+  "batch_size": 100,
+  "first_uid": 53293,
+  "last_uid": 53392,
+  "first_pass_accepted": 94,
+  "second_pass_accepted": 1,
+  "unresolved_uids": [53314, 53336, 53355, 53375, 53386],
+  "late_accepted_uid": 53319,
+  "dependency_creator_uid": 53327,
+  "created_jobs": 19,
+  "classifications": {
+    "APPLICATION_CONFIRMATION": 41,
+    "GENERAL_COMPANY_COMMUNICATION": 1,
+    "REJECTION": 10,
+    "UNKNOWN": 48
+  }
+}

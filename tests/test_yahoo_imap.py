@@ -290,6 +290,25 @@ def test_exact_folder_selection_is_read_only() -> None:
     assert ("select", "Jobs", True) in factory.connections[0].calls
 
 
+def test_exact_recovery_uids_fetch_only_requested_messages() -> None:
+    factory = Factory(uids=(10, 11, 12), default_messages=True)
+
+    scan = scan_with_reconnect(
+        settings(),
+        folder="Jobs",
+        since_date=SINCE_DATE,
+        only_uids={10, 12},
+        connection_factory=factory,
+    )
+
+    assert [message.uid for message in scan.messages] == [10, 12]
+    assert scan.batch_selected_count == 2
+    fetched_uids = {
+        int(call[2]) for call in factory.connections[0].calls if call[:2] == ("uid", "FETCH")
+    }
+    assert fetched_uids == {10, 12}
+
+
 def test_missing_or_inexact_folder_is_refused() -> None:
     factory = Factory()
     with YahooImapClient(settings(), connection_factory=factory) as client:

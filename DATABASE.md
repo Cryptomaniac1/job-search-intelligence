@@ -113,6 +113,23 @@ UTC, the live database was approval-gated and upgraded to `20260712_0006`. Histo
 logical digests were preserved; both new tables began with zero rows. Its verified post-migration
 SHA-256 is `088e96d7d518815ef5b1de757a6e7d6aaff9695b9d4706f8d25602952c4a91b0`.
 
+### Sprint 10 Yahoo incident state
+
+The first bounded Yahoo production attempt fetched UIDs `53293` through `53392` without mailbox
+mutation. The persistence pass accepted 94 messages. The former idempotency implementation then
+called the normal importer again, accepted UID `53319`, and created a second `email_imports` row.
+It stopped before writing a checkpoint. The live database therefore intentionally remains at
+revision `20260712_0006` with checksum
+`e82d1fa0e4e751ec14b36cf82298e0931c81631698704c0d1152bae7bfe52bc1`, 7,737 jobs, six import
+rows, and 95 rows in each of `imported_messages`, `email_classifications`, and
+`imap_message_metadata`. All recruiter and interview tables and `imap_sync_checkpoints` remain
+empty. Integrity and foreign-key checks pass.
+
+The original 7,718 job rows and four import rows exactly match the verified pre-migration backup.
+Do not restore, retry, or advance the checkpoint without the separately approved incident
+recovery gate. The SQLite-safe incident backup and sanitized evidence are external to Git under
+`~/Documents/job-intelligence-backups/sprint-10-1-idempotency-incident/`.
+
 ## Migration history
 
 - `20260712_0001`: baseline representation of `jobs` and `email_imports`.

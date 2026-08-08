@@ -52,8 +52,8 @@ the product and architecture documents remain part of the roadmap unless explici
   tolerant HTML normalization, bounded full-message fallback for malformed BODYSTRUCTURE data,
   and temporary-database integration. An offline, approval-gated production path validates the
   exact database checksum, backup and dry-run evidence, credentials, TLS configuration,
-  confirmation token, and fixed first-batch scope. No successful Yahoo message synchronization
-  has occurred.
+  confirmation token, and fixed first-batch scope. No Yahoo synchronization has completed with a
+  checkpoint.
 
 ## Prototype
 
@@ -67,6 +67,12 @@ requirements or production reliability goals.
 
 ## In Progress
 
+- Sprint 10.1 remediation of the first bounded Yahoo production attempt. The fetch completed 100
+  messages, but the original mutating idempotency pass accepted one dependency-ordered message
+  and aborted before checkpoint creation. The preserved incident database contains 95 Yahoo
+  provenance rows, 19 additive Yahoo jobs, and no checkpoint; the original 7,718 jobs and four
+  import rows remain logically unchanged. Live recovery is not yet approved.
+
 - Regression coverage expansion for import parsing, matching, and analytics.
 - Progressive extraction of the backend monolith into the `backend/app` package.
 - Review and separately plan remediation for pre-Sprint-1 duplicate historical records.
@@ -76,8 +82,8 @@ requirements or production reliability goals.
 ## Planned
 
 - Live Gmail API synchronization.
-- Approval-gated first bounded Yahoo IMAP production synchronization; live Hotmail and other IMAP
-  synchronization.
+- Approval-gated recovery of the five unresolved Yahoo UIDs, then incremental Yahoo IMAP
+  production synchronization; live Hotmail and other IMAP synchronization.
 - Recruiter relationship scoring, notes, reminders, and editing.
 - First-class applications, emails, companies, resumes, and offers, plus richer interview editing
   and calendar augmentation.
