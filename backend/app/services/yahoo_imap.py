@@ -320,6 +320,7 @@ class YahooImapClient:
         count_only: bool = False,
         progress_every: int = 100,
         progress_callback: ProgressCallback | None = None,
+        only_uids: set[int] | None = None,
     ) -> YahooImapScan:
         if progress_every <= 0:
             raise ValueError("Progress interval must be greater than zero")
@@ -332,7 +333,15 @@ class YahooImapClient:
         search = self._search_uids(start_uid, since_date)
         if count_only:
             return self._empty_scan(folder, since_date, uidvalidity, search, started_at)
-        uids = search.uids[:limit] if limit is not None else search.uids
+        selected = (
+            tuple(uid for uid in search.uids if uid in only_uids)
+            if only_uids is not None
+            else search.uids
+        )
+        if only_uids is not None and set(selected) != only_uids:
+            missing = sorted(only_uids - set(selected))
+            raise RuntimeError(f"Requested recovery UIDs were not found: {missing}")
+        uids = selected[:limit] if limit is not None else selected
         messages: list[YahooImapMessage] = []
         failures: list[ScanFailure] = []
         contiguous = start_uid - 1
@@ -376,7 +385,11 @@ class YahooImapClient:
             batch_selected_count=len(uids),
             processed_count=len(uids),
             completed_count=len(messages),
-            first_uid=search.uids[0] if search.uids else None,
+            first_uid=(
+                uids[0]
+                if only_uids is not None and uids
+                else (search.uids[0] if search.uids else None)
+            ),
             last_uid=search.uids[-1] if search.uids else None,
             last_uid_attempted=last_attempted,
             last_uid_completed=last_completed,
@@ -680,6 +693,7 @@ def scan_with_reconnect(
     progress_every: int = 100,
     progress_callback: ProgressCallback | None = None,
     connection_factory: ConnectionFactory = DEFAULT_CONNECTION_FACTORY,
+    only_uids: set[int] | None = None,
 ) -> YahooImapScan:
     """Retry one transient connection abort without changing mailbox state."""
     for attempt in range(2):
@@ -694,6 +708,7 @@ def scan_with_reconnect(
                     count_only=count_only,
                     progress_every=progress_every,
                     progress_callback=progress_callback,
+                    only_uids=only_uids,
                 )
                 return replace(scan, reconnect_count=scan.reconnect_count + attempt)
         except (imaplib.IMAP4.abort, OSError) as exc:

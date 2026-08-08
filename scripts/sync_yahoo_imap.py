@@ -36,6 +36,7 @@ from backend.app.services.yahoo_live_sync import (  # noqa: E402
     preflight_live_sync,
     state_delta,
 )
+from backend.app.services.yahoo_incident import verify_yahoo_batch_read_only  # noqa: E402
 from backend.app.services.yahoo_imap import (  # noqa: E402
     DEFAULT_CONNECT_TIMEOUT,
     DEFAULT_HOST,
@@ -104,6 +105,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--limit", type=int)
     parser.add_argument("--allow-live-database", action="store_true")
     parser.add_argument("--confirm-live-sync")
+    parser.add_argument("--verify-idempotency", action="store_true")
     parser.add_argument("--backup-metadata", type=Path)
     parser.add_argument("--dry-run-evidence", type=Path)
     parser.add_argument("--output-json", type=Path)
@@ -136,6 +138,8 @@ def parse_arguments() -> argparse.Namespace:
         parser.error("--preflight-live requires --backup-metadata and --dry-run-evidence")
     if arguments.output_json and not arguments.dry_run:
         parser.error("--output-json is supported only with --dry-run")
+    if arguments.verify_idempotency and not arguments.sync:
+        parser.error("--verify-idempotency is supported only with --sync")
     return arguments
 
 
@@ -280,7 +284,7 @@ def synchronize(
     module = importlib.import_module("backend.main")
     imported: dict[str, Any] = module.import_yahoo_imap_messages(scan.messages)
     idempotency_result = _verify_immediate_idempotency(
-        module, database, scan, enabled=verify_idempotency
+        database, scan, enabled=verify_idempotency
     )
     completed_at = datetime.now(UTC).replace(tzinfo=None)
     failures = [failure.__dict__ for failure in scan.failures] + list(imported["failures"])
@@ -356,26 +360,17 @@ def synchronize(
 
 
 def _verify_immediate_idempotency(
-    module: Any, database: Path, scan: YahooImapScan, *, enabled: bool
+    database: Path, scan: YahooImapScan, *, enabled: bool
 ) -> dict[str, Any]:
     if not enabled:
         return {"performed": False}
-    before = database_state(database)
-    repeated: dict[str, Any] = module.import_yahoo_imap_messages(scan.messages)
-    after = database_state(database)
-    unchanged = before["checksum_sha256"] == after["checksum_sha256"]
-    passed = (
-        unchanged
-        and int(repeated["accepted_count"]) == 0
-        and int(repeated["skipped_count"]) == len(scan.messages)
-    )
-    if not passed:
+    verification = verify_yahoo_batch_read_only(database, scan.messages)
+    if not verification["passed"]:
         raise RuntimeError("Immediate Yahoo sync idempotency verification failed")
     return {
-        "performed": True,
-        "passed": True,
+        **verification,
         "accepted_count": 0,
-        "skipped_count": int(repeated["skipped_count"]),
+        "skipped_count": int(verification["represented_count"]),
         "logical_state_unchanged": True,
         "network_connections": 0,
     }
@@ -476,7 +471,9 @@ def main() -> None:
                 start_uid=start_uid,
                 limit=arguments.limit,
                 progress_every=arguments.progress_every,
-                verify_idempotency=database == EXPECTED_LIVE_DATABASE,
+                verify_idempotency=(
+                    arguments.verify_idempotency or database == EXPECTED_LIVE_DATABASE
+                ),
             )
     except Exception as exc:
         raise SystemExit(f"Yahoo IMAP operation stopped: {exc}") from exc

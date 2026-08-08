@@ -1355,13 +1355,14 @@ def _finish_historical_import(
 
 def import_yahoo_imap_messages(messages: Iterable[YahooImapMessage]) -> dict[str, object]:
     """Feed Yahoo IMAP messages through the existing deterministic evidence pipeline."""
-    batch = list(messages)
+    batch = sorted(messages, key=lambda message: (message.uid, message.identity))
     if not batch:
         return _empty_yahoo_imap_summary()
     _validate_yahoo_imap_batch(batch)
     summary = _empty_yahoo_imap_summary()
     failures: list[dict[str, object]] = []
     with Session(engine) as session:
+        cross_account_conflicts = _yahoo_cross_account_conflicts(session, batch)
         batch_identities = {message.identity for message in batch}
         existing_identities = {
             identity
@@ -1390,7 +1391,10 @@ def import_yahoo_imap_messages(messages: Iterable[YahooImapMessage]) -> dict[str
             try:
                 with session.begin_nested():
                     application, matched = _record_yahoo_imap_message(
-                        session, import_record, message
+                        session,
+                        import_record,
+                        message,
+                        cross_account_conflict=message.identity in cross_account_conflicts,
                     )
                 summary["accepted_count"] = int(summary["accepted_count"]) + 1
                 if application:
@@ -1401,6 +1405,16 @@ def import_yahoo_imap_messages(messages: Iterable[YahooImapMessage]) -> dict[str
         summary["scanned_count"] = len(batch)
         summary["failure_count"] = len(failures)
         summary["failures"] = failures
+        summary["unresolved_messages"] = [
+            {
+                "uid": message.uid,
+                "classification": EmailType.APPLICATION_CONFIRMATION.value,
+                "reason_category": "conflicting_identity",
+                "reason": "job identifier belongs to a different provider account",
+            }
+            for message in batch
+            if message.identity in cross_account_conflicts
+        ]
         import_record.total_messages = len(batch)
         import_record.confirmations_found = int(summary["accepted_count"])
         import_record.matched_jobs = int(summary["matched_jobs"])
@@ -1419,6 +1433,7 @@ def _empty_yahoo_imap_summary() -> dict[str, object]:
         "matched_jobs": 0,
         "unmatched_jobs": 0,
         "failures": [],
+        "unresolved_messages": [],
     }
 
 
@@ -1433,8 +1448,34 @@ def _validate_yahoo_imap_batch(messages: list[YahooImapMessage]) -> None:
         raise ValueError("Yahoo IMAP batches must use one account, folder, and UIDVALIDITY")
 
 
+def _yahoo_cross_account_conflicts(
+    session: Session, messages: list[YahooImapMessage]
+) -> set[str]:
+    """Plan cross-account identifier conflicts from the pre-import snapshot."""
+    conflicts: set[str] = set()
+    for message in messages:
+        classification = classify_email(
+            subject=message.subject,
+            sender=message.sender,
+            body=message.text_body,
+        )
+        if classification.classification != EmailType.APPLICATION_CONFIRMATION:
+            continue
+        identifier = extract_job_id(f"{message.subject} {message.text_body}")
+        if not identifier:
+            continue
+        existing = session.scalar(select(Job).where(Job.linkedin_job_id == identifier))
+        if existing and existing.email_account and existing.email_account != "yahoo":
+            conflicts.add(message.identity)
+    return conflicts
+
+
 def _record_yahoo_imap_message(
-    session: Session, import_record: EmailImport, message: YahooImapMessage
+    session: Session,
+    import_record: EmailImport,
+    message: YahooImapMessage,
+    *,
+    cross_account_conflict: bool = False,
 ) -> tuple[bool, bool]:
     subject = message.subject
     sender = message.sender
@@ -1444,7 +1485,7 @@ def _record_yahoo_imap_message(
     is_application = classification.classification == EmailType.APPLICATION_CONFIRMATION
     job: Optional[Job] = None
     matched = False
-    if is_application:
+    if is_application and not cross_account_conflict:
         company, title = extract_company_and_title(subject, body, sender)
         urls = extract_urls(combined)
         job, _, matched = match_or_create_application(
@@ -1481,7 +1522,11 @@ def _record_yahoo_imap_message(
         identity=message.identity,
         original_message_id=message.message_id,
         job_id=job.id if job else None,
-        outcome=("matched" if matched else "unmatched") if job else "classified",
+        outcome=(
+            "unmatched"
+            if cross_account_conflict
+            else (("matched" if matched else "unmatched") if job else "classified")
+        ),
     )
     classification_record = record_email_classification(
         session,
@@ -1505,7 +1550,11 @@ def _record_yahoo_imap_message(
             observed_at=message.received_at or datetime.utcnow(),
         )
     _record_imap_metadata(session, message)
-    imported.error = ""
+    imported.error = (
+        "conflicting_identity: job identifier belongs to a different provider account"
+        if cross_account_conflict
+        else ""
+    )
     return is_application, matched
 
 
