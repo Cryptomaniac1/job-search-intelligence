@@ -51,6 +51,10 @@ class ImapConnection(Protocol):
 
     def login(self, user: str, password: str) -> tuple[str, builtins.list[bytes]]: ...
 
+    def authenticate(
+        self, mechanism: str, authobject: Callable[[bytes], bytes]
+    ) -> tuple[str, builtins.list[bytes]]: ...
+
     def list(self) -> tuple[str, builtins.list[bytes] | None]: ...
 
     def select(self, mailbox: str, readonly: bool = False) -> tuple[str, builtins.list[bytes]]: ...
@@ -66,6 +70,45 @@ class ImapConnection(Protocol):
 
 ConnectionFactory = Callable[..., ImapConnection]
 DEFAULT_CONNECTION_FACTORY = cast(ConnectionFactory, imaplib.IMAP4_SSL)
+
+
+class ImapTransportSettings(Protocol):
+    """Settings contract shared by password and OAuth IMAP providers."""
+
+    @property
+    def username(self) -> str: ...
+
+    @property
+    def folder(self) -> str: ...
+
+    @property
+    def host(self) -> str: ...
+
+    @property
+    def port(self) -> int: ...
+
+    @property
+    def connect_timeout(self) -> float: ...
+
+    @property
+    def read_timeout(self) -> float: ...
+
+    @property
+    def max_mime_parts(self) -> int: ...
+
+    @property
+    def max_fallback_message_bytes(self) -> int: ...
+
+    @property
+    def provider(self) -> str: ...
+
+    @property
+    def account_namespace(self) -> str: ...
+
+    @property
+    def redaction_values(self) -> tuple[str, ...]: ...
+
+    def authenticate(self, connection: ImapConnection) -> None: ...
 
 
 def create_verified_tls_context() -> ssl.SSLContext:
@@ -91,8 +134,21 @@ class YahooImapSettings:
     max_fallback_message_bytes: int = DEFAULT_MAX_FALLBACK_MESSAGE_BYTES
 
     @property
+    def provider(self) -> str:
+        return PROVIDER
+
+    @property
     def account_namespace(self) -> str:
         return normalize_text(self.username)
+
+    @property
+    def redaction_values(self) -> tuple[str, ...]:
+        return (self.app_password, self.username)
+
+    def authenticate(self, connection: ImapConnection) -> None:
+        status, _ = connection.login(self.username, self.app_password)
+        if status != "OK":
+            raise RuntimeError("Yahoo IMAP login failed")
 
     @classmethod
     def from_environment(
@@ -156,6 +212,7 @@ class YahooImapMessage:
     html_fallback_used: bool
     attachments: tuple[AttachmentMetadata, ...]
     identity: str
+    provider: str = PROVIDER
 
 
 @dataclass(frozen=True)
@@ -252,7 +309,7 @@ class YahooImapClient:
 
     def __init__(
         self,
-        settings: YahooImapSettings,
+        settings: ImapTransportSettings,
         *,
         connection_factory: ConnectionFactory = DEFAULT_CONNECTION_FACTORY,
     ) -> None:
@@ -440,6 +497,8 @@ class YahooImapClient:
             if not page:
                 return UidSearchResult(tuple(collected), page_count, True)
             if page != sorted(set(page)) or page[0] < cursor:
+                if collected and page == [collected[-1]] and cursor == collected[-1] + 1:
+                    return UidSearchResult(tuple(collected), page_count, True)
                 return UidSearchResult(tuple(collected), page_count, False)
             if collected and page[0] <= collected[-1]:
                 return UidSearchResult(tuple(collected), page_count, False)
@@ -507,6 +566,7 @@ class YahooImapClient:
             self.messages_requiring_body += 1
         body, html_fallback, attachments = self._body_and_attachments(uid, header, body_required)
         identity = imap_message_identity(
+            provider=self.settings.provider,
             account_namespace=self.settings.account_namespace,
             folder=folder,
             uidvalidity=uidvalidity,
@@ -528,6 +588,7 @@ class YahooImapClient:
             html_fallback_used=html_fallback,
             attachments=attachments,
             identity=identity,
+            provider=self.settings.provider,
         )
 
     def _fetch_message_with_retry(
@@ -646,9 +707,7 @@ class YahooImapClient:
             timeout=self.settings.connect_timeout,
         )
         self._apply_read_timeout()
-        status, _ = self.connection.login(self.settings.username, self.settings.app_password)
-        if status != "OK":
-            raise RuntimeError("Yahoo IMAP login failed")
+        self.settings.authenticate(self.connection)
 
     def _reconnect(self, folder: str, expected_uidvalidity: str) -> None:
         self.connection = None
@@ -682,7 +741,7 @@ class YahooImapClient:
 
 
 def scan_with_reconnect(
-    settings: YahooImapSettings,
+    settings: ImapTransportSettings,
     *,
     folder: str,
     since_date: date,
@@ -718,7 +777,7 @@ def scan_with_reconnect(
 
 
 def list_folders(
-    settings: YahooImapSettings,
+    settings: ImapTransportSettings,
     *,
     connection_factory: ConnectionFactory = DEFAULT_CONNECTION_FACTORY,
 ) -> tuple[str, ...]:
@@ -727,14 +786,19 @@ def list_folders(
 
 
 def imap_message_identity(
-    *, account_namespace: str, folder: str, uidvalidity: str, uid: int
+    *,
+    account_namespace: str,
+    folder: str,
+    uidvalidity: str,
+    uid: int,
+    provider: str = PROVIDER,
 ) -> str:
     """Create provider/account/folder/UIDVALIDITY/UID transport identity."""
     payload = {
         "account_namespace": normalize_text(account_namespace),
         "folder": normalize_text(folder),
         "kind": "imap-uid",
-        "provider": PROVIDER,
+        "provider": normalize_text(provider),
         "uid": uid,
         "uidvalidity": uidvalidity,
     }
@@ -742,10 +806,10 @@ def imap_message_identity(
     return f"v1:{hashlib.sha256(encoded).hexdigest()}"
 
 
-def redact_exception(exc: BaseException, settings: YahooImapSettings) -> str:
+def redact_exception(exc: BaseException, settings: ImapTransportSettings) -> str:
     """Remove credentials from diagnostic text."""
     message = str(exc)
-    for secret in (settings.app_password, settings.username):
+    for secret in settings.redaction_values:
         if secret:
             message = message.replace(secret, "[REDACTED]")
     return message or type(exc).__name__

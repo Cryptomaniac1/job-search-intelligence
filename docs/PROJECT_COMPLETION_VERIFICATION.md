@@ -44,10 +44,10 @@ must remain visible as deferred requirements, but they do not block the Version 
 
 | Requirement | Current status | Current evidence | Required to pass Version 1 |
 |---|---|---|---|
-| FR-001 Sync Gmail | Fail | Gmail MBOX import exists; no live incremental synchronization or checkpoint | Add OAuth-based bounded synchronization, provenance, retries, and checkpointing |
+| FR-001 Sync Gmail | Partial | OAuth/XOAUTH2 bounded sync, provider-scoped provenance, retries, checkpoints, offline live gate, OAuth authorization, and real read-only count/dry-run evidence exist; no production synchronization has occurred | Complete two approved production passes |
 | FR-002 Sync Yahoo | Partial | Secure IMAP transport and 95 preserved messages exist; the first production batch has no checkpoint | Recover the five approved UIDs, prove read-only idempotency, then complete bounded incremental sync |
-| FR-003 Sync Hotmail | Fail | Hotmail MBOX import exists; no live incremental synchronization or checkpoint | Add OAuth-based bounded synchronization, provenance, retries, and checkpointing |
-| FR-004 Detect business events | Partial | Versioned deterministic classifier covers applications, recruiter communication, interview and assessment events, offers, rejections, referrals, and unknown messages | Add withdrawal and explicit interview-stage coverage; validate accuracy on a reviewed representative corpus |
+| FR-003 Sync Hotmail | Partial | OAuth/XOAUTH2 bounded sync, provider-scoped provenance, retries, checkpoints, offline live gate, OAuth authorization, and real read-only count/dry-run evidence exist; no production synchronization has occurred | Complete two approved production passes |
+| FR-004 Detect business events | Partial | Versioned deterministic classifier includes withdrawal and explicit screen, technical, manager, panel, onsite, final, and assessment stages; the 33-case version-controlled sanitized Version 1 benchmark scores 100% | Review production evidence and approve exceptions or confirm representative accuracy |
 | FR-005 Company timeline | Partial | Company aggregate analytics exist | Add a first-class, chronological company interaction timeline across jobs, emails, recruiters, interviews, and offers |
 | FR-006 Recruiter CRM | Partial | Recruiter identity, company/email evidence, job links, read-only API, and dashboard exist | Populate production evidence and add interaction history, notes, response latency, last contact, reminders, and relationship status |
 | FR-007 Interview pipeline | Partial | Interview aggregates/events, filters, upcoming view, and immutable evidence exist | Populate production evidence and expose the complete application-to-offer stage path without fabricated links |
@@ -100,7 +100,7 @@ must remain visible as deferred requirements, but they do not block the Version 
 | Metric from `PRODUCT_REQUIREMENTS.md` | Target | Current verification |
 |---|---:|---|
 | Applications tracked | 100% | Not proven; historical jobs exist, but three-provider live synchronization is incomplete |
-| Interview classification accuracy | >98% | Not proven on a representative reviewed corpus |
+| Interview classification accuracy | >98% | Pass on the 33-case version-controlled sanitized Version 1 benchmark (100%); human review and production representativeness remain to be confirmed |
 | Duplicate detection | >99% | Strong regression coverage exists, but the production metric is not measured |
 | Email sync latency | <30 seconds | Not proven; Gmail/Hotmail live sync is absent and Yahoo is operator-driven |
 | Dashboard loading | <2 seconds | Not proven by a repeatable performance test |
@@ -258,6 +258,29 @@ Known verification debt:
 - The local virtual environment currently runs Python 3.13.1; CI remains the Python 3.12 source of
   truth.
 - The suite emits 2,179 legacy `datetime.utcnow()` deprecation warnings.
+
+## Sprint 11 implementation verification — 2026-08-08
+
+This run verifies the provider-neutral implementation plus separately approved read-only Gmail and
+Hotmail folder, count-only, and bounded dry-run checks without modifying the runtime database.
+
+| Check | Result |
+|---|---|
+| Full Pytest | Pass — 207 tests |
+| Gmail/Hotmail temporary two-pass synchronization | Pass — second pass creates zero duplicate evidence for both providers |
+| Provider status API/dashboard | Pass — three providers represented; account namespaces hashed; no write controls |
+| Version 1 classification benchmark | Pass — 33/33 version-controlled sanitized cases, including explicit interview stages and withdrawal; human review remains open |
+| Ruff | Pass |
+| Black check | Pass — 41 files unchanged |
+| MyPy configured scope | Pass — 41 files |
+| Gmail read-only validation | Pass — exact `jobs` folder; 242 matches since 2024-07-01; 25/25 bounded messages completed with zero failures |
+| Hotmail read-only validation | Pass — exact `Job` folder; 6,045 matches since 2024-07-01; 25/25 bounded messages completed with zero failures |
+| Read-only safety | Pass — zero database writes and zero mailbox mutations; evidence stored outside the repository |
+| Runtime database writes | None; checksum remained `e82d1fa0e4e751ec14b36cf82298e0931c81631698704c0d1152bae7bfe52bc1` |
+
+Operational exit criteria remain open: Yahoo incident recovery and continuation, two approved
+production synchronization passes per provider, and production recruiter/interview evidence
+review.
 - `backend/main.py` remains monolithic and outside the configured MyPy/Black scope.
 - Performance targets and production accuracy metrics do not yet have representative benchmarks.
 

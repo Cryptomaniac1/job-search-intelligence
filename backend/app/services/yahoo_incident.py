@@ -125,7 +125,7 @@ def _message_verification(
     )
 
 
-def verify_yahoo_batch_read_only(
+def verify_imap_batch_read_only(
     database: Path, messages: Sequence[YahooImapMessage]
 ) -> dict[str, Any]:
     """Verify persisted batch evidence without invoking any persistence code."""
@@ -155,6 +155,15 @@ def verify_yahoo_batch_read_only(
         "database_writes": 0,
         "records": [asdict(record) | {"represented": record.represented} for record in records],
     }
+
+
+def verify_yahoo_batch_read_only(
+    database: Path, messages: Sequence[YahooImapMessage]
+) -> dict[str, Any]:
+    """Compatibility wrapper for the original Yahoo incident verifier."""
+    if any(message.provider != "yahoo" for message in messages):
+        raise ValueError("Yahoo verification accepts only Yahoo transport messages")
+    return verify_imap_batch_read_only(database, messages)
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -359,7 +368,7 @@ def apply_missing_recovery(
             for table in ("jobs", "email_imports", "imported_messages", "email_classifications")
         }
     imported = importer(messages)
-    verification = verify_yahoo_batch_read_only(database, messages)
+    verification = verify_imap_batch_read_only(database, messages)
     with sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True) as connection:
         connection.execute("PRAGMA query_only = ON")
         after_counts = {

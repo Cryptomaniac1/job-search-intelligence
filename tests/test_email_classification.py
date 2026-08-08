@@ -9,9 +9,13 @@ from backend.app.services.email_classification import (
     EmailType,
     classify_email,
 )
+from backend.app.services.interview_pipeline import extract_interview
 
 CASES = json.loads(
     (Path(__file__).parent / "fixtures" / "classification" / "cases.json").read_text()
+)
+BENCHMARK = json.loads(
+    (Path(__file__).parent / "fixtures" / "classification" / "version1_benchmark.json").read_text()
 )
 
 
@@ -47,3 +51,27 @@ def test_specific_rule_wins_over_generic_offer_signal() -> None:
     )
 
     assert result.classification == EmailType.OFFER_UPDATE
+
+
+def test_version1_sanitized_benchmark_exceeds_required_accuracy() -> None:
+    correct = 0
+    for case in BENCHMARK:
+        result = classify_email(
+            subject=case["subject"],
+            sender="sanitized@example.invalid",
+            body=case["body"],
+        )
+        classification_correct = result.classification.value == case["expected"]
+        stage_correct = True
+        if expected_type := case.get("interview_type"):
+            interview = extract_interview(
+                classification=result.classification.value,
+                subject=case["subject"],
+                body=case["body"],
+            )
+            stage_correct = interview is not None and interview.interview_type == expected_type
+        correct += int(classification_correct and stage_correct)
+
+    accuracy = correct / len(BENCHMARK)
+    assert len(BENCHMARK) >= 30
+    assert accuracy > 0.98

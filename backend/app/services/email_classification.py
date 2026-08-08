@@ -28,6 +28,7 @@ class EmailType(str, Enum):
     OFFER_DECLINED = "OFFER_DECLINED"
     REJECTION = "REJECTION"
     POSITION_CLOSED = "POSITION_CLOSED"
+    WITHDRAWAL = "WITHDRAWAL"
     GHOSTING = "GHOSTING"
     NETWORKING = "NETWORKING"
     REFERRAL = "REFERRAL"
@@ -66,6 +67,10 @@ RULES = (
     Rule(EmailType.ASSESSMENT_INVITATION, ("complete an assessment", "assessment invitation")),
     Rule(EmailType.REJECTION, ("not moving forward", "decided not to proceed", "other candidates")),
     Rule(EmailType.POSITION_CLOSED, ("position has been closed", "role is no longer available")),
+    Rule(
+        EmailType.WITHDRAWAL,
+        ("withdraw my application", "application withdrawal confirmed", "application withdrawn"),
+    ),
     Rule(
         EmailType.APPLICATION_CONFIRMATION,
         ("thank you for applying", "application received", "successfully applied"),

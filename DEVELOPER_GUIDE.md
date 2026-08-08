@@ -196,6 +196,65 @@ The existing structured Yahoo opportunity/application export is not compatible a
 treated as raw email. Use `--cleanup` only when the disposable database and reports no longer need
 manual review; otherwise they are preserved outside the repository.
 
+## Gmail and Hotmail OAuth IMAP synchronization
+
+Sprint 11 reuses the bounded, read-only IMAP transport for Gmail and Hotmail. It does not accept
+mailbox passwords. Supply either a short-lived OAuth access token or a client ID and refresh token
+through the process environment. Never store these values in `.env` files, command history,
+fixtures, logs, or the repository.
+
+```bash
+export GMAIL_IMAP_USERNAME="your-gmail-address"
+export GMAIL_OAUTH_ACCESS_TOKEN="short-lived-access-token"
+export GMAIL_IMAP_FOLDER="INBOX"
+
+export HOTMAIL_IMAP_USERNAME="your-hotmail-address"
+export HOTMAIL_OAUTH_CLIENT_ID="registered-application-client-id"
+export HOTMAIL_OAUTH_REFRESH_TOKEN="refresh-token"
+export HOTMAIL_IMAP_FOLDER="Inbox"
+```
+
+The accepted variable suffixes are `_IMAP_USERNAME`, `_IMAP_FOLDER`,
+`_OAUTH_ACCESS_TOKEN`, `_OAUTH_CLIENT_ID`, `_OAUTH_CLIENT_SECRET`, and
+`_OAUTH_REFRESH_TOKEN`, prefixed with `GMAIL` or `HOTMAIL`. A client secret is optional for public
+OAuth clients. The application never prints these values.
+
+First list exact folders or perform a bounded dry run. These commands make no database writes and
+select mailboxes read-only:
+
+```bash
+backend/.venv/bin/python scripts/sync_oauth_imap.py \
+  --provider gmail --folder jobs --since-date 2024-07-01 --count-only \
+  --output-json /absolute/external/path/gmail-count.json
+
+backend/.venv/bin/python scripts/sync_oauth_imap.py \
+  --provider hotmail --folder Job --since-date 2024-07-01 \
+  --dry-run --limit 25 \
+  --output-json /absolute/external/path/hotmail-dry-run.json
+```
+
+The verified production folder names are case-sensitive: Gmail `jobs` and Hotmail `Job`.
+Count-only mode performs server-side UID search without fetching headers or bodies. Outlook may
+return its final UID once when a range begins above the mailbox maximum; the transport recognizes
+only that exact one-UID sentinel as complete and still rejects larger repeated or overlapping
+pages.
+
+Temporary synchronization requires an explicit revision-`0006` database. A second identical run
+must create zero duplicate evidence:
+
+```bash
+export JOBS_DB_PATH="$(mktemp -d)/oauth-sync.db"
+backend/.venv/bin/python -m alembic upgrade 20260712_0006
+backend/.venv/bin/python scripts/sync_oauth_imap.py \
+  --provider gmail --folder jobs --since-date 2024-07-01 \
+  --database "$JOBS_DB_PATH" --sync --limit 100
+```
+
+Production operation is not authorized merely because the code exists. The offline preflight and
+live run require the exact runtime path, an explicitly approved current checksum, current verified
+backup metadata, approved provider-specific dry-run JSON, `--allow-live-database`, and the literal
+token `GMAIL-LIVE-SYNC` or `HOTMAIL-LIVE-SYNC`. Run those only in a separately approved operation.
+
 ## Yahoo IMAP Jobs-folder synchronization
 
 Yahoo IMAP uses an app password only. Never provide the primary Yahoo password. Credentials are

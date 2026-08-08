@@ -20,6 +20,7 @@ Canonical types:
 - assessment invitation and reminder;
 - offer, update, expiration, acceptance, and decline;
 - rejection and position closed;
+- withdrawal;
 - ghosting, networking, referral, general company communication, and unknown.
 
 Each classification records confidence, classifier version, and reasons. Only application
@@ -118,9 +119,29 @@ repeated, overlapping, or non-monotonic pages stop with `search_complete: false`
 Reports distinguish total matched, batch selected, processed, completed, accepted, and failure
 counters. Fetch-efficiency and throughput metrics contain no message or credential content.
 
+## Gmail and Hotmail OAuth IMAP transport
+
+Sprint 11 generalizes the proven read-only IMAP transport for Gmail and Hotmail while preserving
+provider-scoped identity and the account-to-role-family mapping. Gmail uses
+`imap.gmail.com:993`; Hotmail uses `outlook.office365.com:993`. Authentication uses IMAP XOAUTH2
+with an access token or a lazily exchanged refresh token. Password authentication is prohibited.
+
+Both providers use exact read-only folder selection, inclusive server-side `SINCE` searches,
+headers-first bounded MIME retrieval, timeouts, reconnects, UIDVALIDITY verification, and
+provider/account/folder/date checkpoint isolation. Dry-run evidence must be written outside the
+repository. A live operation additionally requires the exact runtime path, explicitly approved
+checksum, current verified backup, approved provider-specific dry-run evidence, and the literal
+provider confirmation token. The offline gate opens no provider connection and writes no rows.
+
+The `/sync/status` API and dashboard expose evidence counts and checkpoint progress for all three
+providers. Account namespaces are replaced by short deterministic hashes; credentials and message
+content are never exposed. Sprint 11 implementation and tests use only sanitized fixtures and
+temporary databases. Real Gmail/Hotmail authorization and bounded read-only validation are
+complete; production synchronization remains an operator approval gate.
+
 ## Planned
 
 - Thread reconstruction
 - Attachment parsing
 - Optional second-stage AI classifier
-- Approval-gated live provider synchronization and background polling
+- Approved production provider authorization/synchronization and background polling

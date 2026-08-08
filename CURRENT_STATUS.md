@@ -54,6 +54,21 @@ the product and architecture documents remain part of the roadmap unless explici
   exact database checksum, backup and dry-run evidence, credentials, TLS configuration,
   confirmation token, and fixed first-batch scope. No Yahoo synchronization has completed with a
   checkpoint.
+- Shared Gmail and Hotmail OAuth IMAP foundation using XOAUTH2, provider-specific TLS endpoints,
+  inclusive server-side date bounds, the existing bounded read-only transport, provider/account/
+  folder/date checkpoint isolation, external sanitized evidence reports, and offline production
+  approval gates. Temporary two-pass simulations prove repeat-safe evidence ingestion. Real OAuth
+  authorization and read-only validation completed for the exact Gmail `jobs` and Hotmail `Job`
+  folders: Gmail reported 242 matches and Hotmail reported 6,045 matches since 2024-07-01; bounded
+  25-message dry runs completed without failures, database writes, or mailbox mutations. Neither
+  provider has been synchronized into the runtime database.
+- Read-only `GET /sync/status` API and dashboard panel for provider evidence and checkpoint state.
+  Account namespaces are hashed and credentials and message content are never returned.
+- Version 1 deterministic classification benchmark with 33 version-controlled sanitized cases,
+  including
+  withdrawal and explicit recruiter-screen, technical, hiring-manager, panel, onsite, final-round,
+  and assessment differentiation. The current fixture benchmark scores 100%; production accuracy
+  remains unproven until reviewed real evidence is available.
 
 ## Prototype
 
@@ -67,6 +82,10 @@ requirements or production reliability goals.
 
 ## In Progress
 
+- Sprint 11 production email completion. Provider-neutral Gmail/Hotmail OAuth transport,
+  checkpointing, live approval gates, status visibility, and benchmark coverage are implemented;
+  live synchronization and Yahoo incident recovery remain separately approval-gated operational
+  work.
 - Sprint 10.1 remediation of the first bounded Yahoo production attempt. The fetch completed 100
   messages, but the original mutating idempotency pass accepted one dependency-ordered message
   and aborted before checkpoint creation. The preserved incident database contains 95 Yahoo
@@ -81,7 +100,7 @@ requirements or production reliability goals.
 
 ## Planned
 
-- Live Gmail API synchronization.
+- Approved production Gmail and Hotmail synchronization.
 - Approval-gated recovery of the five unresolved Yahoo UIDs, then incremental Yahoo IMAP
   production synchronization; live Hotmail and other IMAP synchronization.
 - Recruiter relationship scoring, notes, reminders, and editing.
