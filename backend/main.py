@@ -50,7 +50,42 @@ try:
         normalize_company as normalize_recruiter_company,
     )
     from backend.app.services.sync_status import provider_sync_status
+    from backend.app.services.version1_product import (
+        company_timeline,
+        create_application,
+        create_company,
+        create_interaction,
+        create_job_description,
+        create_note,
+        create_offer,
+        create_resume,
+        get_application,
+        get_recruiter_relationship,
+        list_applications,
+        list_companies,
+        list_job_descriptions,
+        list_notes,
+        list_offers,
+        list_resumes,
+        schema_ready,
+        update_application,
+        update_offer,
+        upsert_recruiter_relationship,
+        version1_analytics,
+    )
     from backend.app.services.yahoo_imap import YahooImapMessage
+    from backend.app.schemas.version1 import (
+        ApplicationInput,
+        ApplicationUpdate,
+        CompanyInput,
+        InteractionInput,
+        JobDescriptionInput,
+        NoteInput,
+        OfferInput,
+        OfferUpdate,
+        RecruiterRelationshipInput,
+        ResumeInput,
+    )
 except ModuleNotFoundError:  # Supports the existing `cd backend && uvicorn main:app` command.
     from app.database.paths import initialize_database_if_missing, resolve_database_path
     from app.services.email_classification import ClassificationResult, EmailType, classify_email
@@ -67,7 +102,42 @@ except ModuleNotFoundError:  # Supports the existing `cd backend && uvicorn main
         normalize_company as normalize_recruiter_company,
     )
     from app.services.sync_status import provider_sync_status
+    from app.services.version1_product import (
+        company_timeline,
+        create_application,
+        create_company,
+        create_interaction,
+        create_job_description,
+        create_note,
+        create_offer,
+        create_resume,
+        get_application,
+        get_recruiter_relationship,
+        list_applications,
+        list_companies,
+        list_job_descriptions,
+        list_notes,
+        list_offers,
+        list_resumes,
+        schema_ready,
+        update_application,
+        update_offer,
+        upsert_recruiter_relationship,
+        version1_analytics,
+    )
     from app.services.yahoo_imap import YahooImapMessage
+    from app.schemas.version1 import (
+        ApplicationInput,
+        ApplicationUpdate,
+        CompanyInput,
+        InteractionInput,
+        JobDescriptionInput,
+        NoteInput,
+        OfferInput,
+        OfferUpdate,
+        RecruiterRelationshipInput,
+        ResumeInput,
+    )
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = resolve_database_path()
@@ -1427,7 +1497,12 @@ def import_imap_messages(messages: Iterable[YahooImapMessage]) -> dict[str, obje
                     key = "matched_jobs" if matched else "unmatched_jobs"
                     summary[key] = int(summary[key]) + 1
             except Exception as exc:
-                failures.append({"uid": message.uid, "error": str(exc)})
+                failures.append(
+                    {
+                        "uid": message.uid,
+                        "error": f"{type(exc).__name__}: persistence rejected",
+                    }
+                )
         summary["scanned_count"] = len(batch)
         summary["failure_count"] = len(failures)
         summary["failures"] = failures
@@ -2167,6 +2242,133 @@ def synchronization_status():
     return provider_sync_status(DB_PATH)
 
 
+def _domain_write(operation, *args):
+    try:
+        return operation(DB_PATH, *args)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except (RuntimeError, sqlite3.IntegrityError, ValueError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@app.get("/applications")
+def applications_index():
+    return list_applications(DB_PATH)
+
+
+@app.post("/applications", status_code=201)
+def applications_create(payload: ApplicationInput):
+    return _domain_write(create_application, payload.model_dump(mode="json"))
+
+
+@app.get("/applications/{application_id}")
+def applications_show(application_id: int):
+    return _domain_write(get_application, application_id)
+
+
+@app.patch("/applications/{application_id}")
+def applications_update(application_id: int, payload: ApplicationUpdate):
+    return _domain_write(
+        update_application,
+        application_id,
+        payload.model_dump(mode="json", exclude_unset=True),
+    )
+
+
+@app.get("/companies")
+def companies_index():
+    return list_companies(DB_PATH)
+
+
+@app.post("/companies", status_code=201)
+def companies_create(payload: CompanyInput):
+    return _domain_write(create_company, payload.model_dump(mode="json"))
+
+
+@app.get("/companies/{company_id}/timeline")
+def companies_timeline(company_id: int):
+    return _domain_write(company_timeline, company_id)
+
+
+@app.get("/resumes")
+def resumes_index():
+    return list_resumes(DB_PATH)
+
+
+@app.post("/resumes", status_code=201)
+def resumes_create(payload: ResumeInput):
+    return _domain_write(create_resume, payload.model_dump(mode="json"))
+
+
+@app.get("/job-descriptions")
+def job_descriptions_index(job_id: Optional[int] = None):
+    return list_job_descriptions(DB_PATH, job_id)
+
+
+@app.post("/job-descriptions", status_code=201)
+def job_descriptions_create(payload: JobDescriptionInput):
+    return _domain_write(create_job_description, payload.model_dump(mode="json"))
+
+
+@app.get("/offers")
+def offers_index():
+    return list_offers(DB_PATH)
+
+
+@app.post("/offers", status_code=201)
+def offers_create(payload: OfferInput):
+    return _domain_write(create_offer, payload.model_dump(mode="json"))
+
+
+@app.patch("/offers/{offer_id}")
+def offers_update(offer_id: int, payload: OfferUpdate):
+    return _domain_write(
+        update_offer,
+        offer_id,
+        payload.model_dump(mode="json", exclude_unset=True),
+    )
+
+
+@app.get("/notes")
+def notes_index(entity_type: str, entity_id: int):
+    return list_notes(DB_PATH, entity_type, entity_id)
+
+
+@app.post("/notes", status_code=201)
+def notes_create(payload: NoteInput):
+    return _domain_write(create_note, payload.model_dump(mode="json"))
+
+
+@app.post("/interactions", status_code=201)
+def interactions_create(payload: InteractionInput):
+    return _domain_write(create_interaction, payload.model_dump(mode="json"))
+
+
+@app.put("/recruiters/{recruiter_id}/relationship")
+def recruiter_relationship_update(
+    recruiter_id: int, payload: RecruiterRelationshipInput
+):
+    return _domain_write(
+        upsert_recruiter_relationship,
+        recruiter_id,
+        payload.model_dump(mode="json"),
+    )
+
+
+@app.get("/analytics/version1")
+def analytics_version1():
+    return version1_analytics(DB_PATH)
+
+
+@app.get("/settings/status")
+def settings_status():
+    return {
+        "database_path": str(DB_PATH),
+        "schema_ready": schema_ready(DB_PATH),
+        "providers": provider_sync_status(DB_PATH),
+    }
+
+
 @app.get("/email-classifications")
 def list_email_classifications(
     classification: Optional[str] = None,
@@ -2238,6 +2440,7 @@ def serialize_recruiter(session: Session, recruiter: Recruiter) -> dict:
             }
             for item in job_links
         ],
+        "relationship": get_recruiter_relationship(DB_PATH, recruiter.id),
         "first_seen_at": recruiter.first_seen_at.isoformat(),
         "last_seen_at": recruiter.last_seen_at.isoformat(),
     }

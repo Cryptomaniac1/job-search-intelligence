@@ -183,7 +183,7 @@ def test_live_preflight_rejects_wrong_database_revision(
     database, metadata, dry_run = live_gate_files
     with sqlite3.connect(database) as connection:
         connection.execute("UPDATE alembic_version SET version_num='20260712_0005'")
-    with pytest.raises(ValueError, match="revision 20260712_0006"):
+    with pytest.raises(ValueError, match="revision 20260808_0007"):
         _preflight(database, metadata, dry_run, expected_checksum=_sha256(database))
 
 

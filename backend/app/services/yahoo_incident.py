@@ -335,7 +335,7 @@ def validate_recovery_gate(
             connection.execute("SELECT COUNT(*) FROM imap_sync_checkpoints").fetchone()[0]
         )
     analysis = analyze_incident(resolved, dry_run_evidence)
-    if revision != "20260712_0006" or integrity != "ok" or foreign_keys:
+    if revision not in {"20260712_0006", "20260808_0007"} or integrity != "ok" or foreign_keys:
         raise ValueError("Incident database health validation failed")
     if checkpoint_count or tuple(analysis["missing_uids"]) != INCIDENT_UIDS:
         raise ValueError("Incident recovery scope no longer matches the approved five UIDs")
@@ -356,10 +356,16 @@ def apply_missing_recovery(
     database: Path,
     messages: Sequence[YahooImapMessage],
     importer: Callable[[Sequence[YahooImapMessage]], dict[str, object]],
+    *,
+    accepted_unavailable_uids: Sequence[int] = (),
 ) -> dict[str, Any]:
-    """Apply only the approved missing UIDs, then verify them without writes."""
-    if tuple(sorted(message.uid for message in messages)) != INCIDENT_UIDS:
-        raise ValueError("Recovery input must contain exactly the five approved missing UIDs")
+    """Apply available incident UIDs and preserve explicitly accepted server exclusions."""
+    unavailable = tuple(sorted(accepted_unavailable_uids))
+    if not set(unavailable) <= set(INCIDENT_UIDS):
+        raise ValueError("Unavailable UIDs must be within the approved incident scope")
+    expected = tuple(uid for uid in INCIDENT_UIDS if uid not in unavailable)
+    if tuple(sorted(message.uid for message in messages)) != expected:
+        raise ValueError("Recovery input does not match the available approved incident UIDs")
     before_counts: dict[str, int]
     with sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True) as connection:
         connection.execute("PRAGMA query_only = ON")
@@ -376,20 +382,22 @@ def apply_missing_recovery(
             for table in before_counts
         }
     passed = (
-        imported["accepted_count"] == len(INCIDENT_UIDS)
+        imported["accepted_count"] == len(expected)
         and imported["failure_count"] == 0
         and verification["passed"]
         and after_counts["jobs"] == before_counts["jobs"]
         and after_counts["email_imports"] == before_counts["email_imports"] + 1
-        and after_counts["imported_messages"] == before_counts["imported_messages"] + 5
-        and after_counts["email_classifications"] == before_counts["email_classifications"] + 5
+        and after_counts["imported_messages"] == before_counts["imported_messages"] + len(expected)
+        and after_counts["email_classifications"]
+        == before_counts["email_classifications"] + len(expected)
     )
     if not passed:
         raise RuntimeError("Controlled missing-UID recovery failed validation")
     return {
         "mode": "missing-uid-recovery",
         "passed": True,
-        "uids": list(INCIDENT_UIDS),
+        "uids": list(expected),
+        "accepted_unavailable_uids": list(unavailable),
         "import_result": imported,
         "read_only_verification": verification,
         "before_counts": before_counts,

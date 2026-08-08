@@ -69,7 +69,8 @@ classifier version, explainable reasons, and creation time.
   and explicit job relationships. Optional exact normalized filters: `company` and `email`.
 - `GET /recruiters/{id}` — returns one recruiter profile or `404`.
 
-Sprint 6 provides no recruiter write endpoints.
+Sprint 6 introduced no recruiter write endpoints. Sprint 12 adds only the conservative relationship
+state endpoint documented below; recruiter identity evidence remains importer-owned.
 
 ## Interviews
 
@@ -94,3 +95,30 @@ operator command; the existing read-only interview API and payload contracts are
 - `GET /analytics/companies`
 
 These remain status-based prototype analytics; Sprint 1 does not change their contracts.
+
+## Version 1 product APIs
+
+Revision `20260808_0007` adds the following local product APIs without changing the existing job,
+import, recruiter, interview, or synchronization contracts:
+
+- `GET /applications` and `POST /applications` — list or create application records linked to an
+  existing job. One application per job is enforced.
+- `GET /applications/{id}` and `PATCH /applications/{id}` — inspect or correct application stage,
+  source, resume, company, and notes without rewriting source email evidence.
+- `GET /companies` and `POST /companies` — list or create normalized company records.
+- `GET /companies/{id}/timeline` — return chronological application, email, recruiter, interview,
+  offer, and manual-interaction evidence for a company.
+- `GET /resumes` and `POST /resumes` — manage versioned resume metadata and safe text content.
+- `GET /job-descriptions` and `POST /job-descriptions` — store safe source text and parsed
+  requirements/keywords; executable content is not accepted.
+- `GET /offers`, `POST /offers`, and `PATCH /offers/{id}` — manage first-class offer records.
+- `GET /notes` and `POST /notes` — manage notes attached to supported domain entities.
+- `POST /interactions` — record manual, non-email interaction history.
+- `PUT /recruiters/{id}/relationship` — update relationship state, reminder, response-latency,
+  and last-contact metadata while preserving recruiter identity evidence.
+- `GET /analytics/version1` — return application pipeline, source, offer, and resume-effectiveness
+  summaries.
+- `GET /settings/status` — return database readiness and credential-safe provider status.
+
+All Version 1 write routes require migration `20260808_0007`. Existing databases are never
+automatically migrated at startup.

@@ -12,6 +12,7 @@ from typing import Any
 from .imap_checkpoint import EXPECTED_REVISION
 from .oauth_imap import PROVIDERS, OAuthImapSettings
 from .yahoo_imap import create_verified_tls_context
+from .yahoo_incident import database_digests
 
 LIVE_DATABASE = (Path(__file__).resolve().parents[3] / "data" / "jobs.db").resolve()
 FORBIDDEN_EVIDENCE_KEYS = {
@@ -74,14 +75,18 @@ def _database_evidence(path: Path, expected_checksum: str) -> dict[str, Any]:
     }
 
 
-def _backup_evidence(metadata_path: Path, expected_checksum: str) -> dict[str, Any]:
+def _backup_evidence(
+    metadata_path: Path, expected_checksum: str, live_database: Path
+) -> dict[str, Any]:
     metadata = _read_json(metadata_path, "Backup metadata")
     backup = Path(str(metadata.get("path", ""))).expanduser().resolve()
     if not backup.is_file():
         raise ValueError("Backup metadata does not reference a readable database")
     checksum = sha256_file(backup)
-    if checksum != metadata.get("checksum_sha256") or checksum != expected_checksum:
-        raise ValueError("Backup checksum does not match metadata and approved live state")
+    if checksum != metadata.get("checksum_sha256"):
+        raise ValueError("Backup checksum does not match metadata")
+    if sha256_file(live_database) != expected_checksum:
+        raise ValueError("Live source checksum changed after approval")
     if metadata.get("alembic_revision") != EXPECTED_REVISION:
         raise ValueError(f"Backup must be at revision {EXPECTED_REVISION}")
     with sqlite3.connect(f"{backup.as_uri()}?mode=ro", uri=True) as connection:
@@ -89,7 +94,14 @@ def _backup_evidence(metadata_path: Path, expected_checksum: str) -> dict[str, A
             raise ValueError("Backup integrity validation failed")
         if list(connection.execute("PRAGMA foreign_key_check")):
             raise ValueError("Backup foreign-key validation failed")
-    return {"path": str(backup), "checksum_sha256": checksum, "revision": EXPECTED_REVISION}
+    if database_digests(backup) != database_digests(live_database):
+        raise ValueError("Backup logical table digests do not match the approved live state")
+    return {
+        "path": str(backup),
+        "checksum_sha256": checksum,
+        "source_checksum_sha256": expected_checksum,
+        "revision": EXPECTED_REVISION,
+    }
 
 
 def _all_keys(value: Any) -> set[str]:
@@ -158,7 +170,7 @@ def preflight_provider_live_sync(
         "folder": folder,
         "since_date": since_date.isoformat(),
         "database": _database_evidence(database, expected_checksum),
-        "backup": _backup_evidence(backup_metadata, expected_checksum),
+        "backup": _backup_evidence(backup_metadata, expected_checksum, database),
         "dry_run": _dry_run_evidence(
             dry_run_evidence, provider=provider, folder=folder, since_date=since_date
         ),

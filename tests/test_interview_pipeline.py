@@ -104,6 +104,19 @@ def test_timezone_duration_url_phone_and_location_extraction() -> None:
     assert "UTC was not fabricated" in missing.ambiguity_reasons[0]
 
 
+def test_malformed_schedule_is_preserved_as_unscheduled_evidence() -> None:
+    evidence = extract_interview(
+        classification="INTERVIEW_INVITATION",
+        subject="Interview invitation",
+        body="Your interview is scheduled for 2026-08-08 at 19:75 PM PST.",
+    )
+
+    assert evidence is not None
+    assert evidence.scheduled_start is None
+    assert evidence.local_start_text == ""
+    assert "date or time could not be parsed; schedule omitted" in evidence.ambiguity_reasons
+
+
 def test_invitation_confirmation_reschedule_and_cancellation_preserve_events(
     isolated_app: tuple[TestClient, Path],
 ) -> None:

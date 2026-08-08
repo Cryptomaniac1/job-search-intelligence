@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 from backend.app.services.yahoo_imap import YahooImapMessage, imap_message_identity
 from backend.app.services.yahoo_incident import (
+    INCIDENT_UIDS,
     RECOVERY_CONFIRMATION_TOKEN,
     analyze_incident,
     apply_missing_recovery,
@@ -326,6 +327,36 @@ def test_controlled_missing_recovery_accepts_five_without_new_jobs(
     assert len(result["import_result"]["unresolved_messages"]) == 5
     assert result["after_counts"]["jobs"] == jobs_before
     assert verify_yahoo_batch_read_only(database, messages)["passed"] is True
+
+
+def test_controlled_recovery_records_explicit_server_exclusions(
+    isolated_app: tuple[Any, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, database = isolated_app
+    module: Any = sys.modules["backend.main"]
+    original_planner = module._yahoo_cross_account_conflicts
+    _seed_cross_account_jobs(module)
+    messages = _incident_messages()
+    monkeypatch.setattr(module, "_yahoo_cross_account_conflicts", lambda *args: set())
+    module.import_yahoo_imap_messages(messages)
+    module.import_yahoo_imap_messages(messages)
+    monkeypatch.setattr(module, "_yahoo_cross_account_conflicts", original_planner)
+    unavailable = (53314, 53336, 53355)
+    available = [
+        message for message in messages if message.uid in set(INCIDENT_UIDS) - set(unavailable)
+    ]
+
+    result = apply_missing_recovery(
+        database,
+        available,
+        module.import_yahoo_imap_messages,
+        accepted_unavailable_uids=unavailable,
+    )
+
+    assert result["passed"] is True
+    assert result["uids"] == [53375, 53386]
+    assert result["accepted_unavailable_uids"] == list(unavailable)
+    assert result["import_result"]["accepted_count"] == 2
 
 
 def test_recovery_gate_is_offline_and_checksum_bound(

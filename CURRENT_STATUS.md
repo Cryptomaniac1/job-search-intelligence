@@ -20,7 +20,7 @@ the product and architecture documents remain part of the roadmap unless explici
 - Preservation-first email-to-job merge behavior and imported-record deletion protection.
 - Read-only live-database preflight, SQLite-safe backup, copy-only migration rehearsal, rollback
   verification, and duplicate-candidate reporting.
-- Historical database at Alembic revision `20260712_0006`, externalized to ignored runtime path
+- Historical database at Alembic revision `20260808_0007`, externalized to ignored runtime path
   `data/jobs.db` with canonical environment-variable overrides.
 - Deterministic, versioned, provider-agnostic email classification engine with explainable reasons
   and additive classification evidence persistence.
@@ -52,16 +52,17 @@ the product and architecture documents remain part of the roadmap unless explici
   tolerant HTML normalization, bounded full-message fallback for malformed BODYSTRUCTURE data,
   and temporary-database integration. An offline, approval-gated production path validates the
   exact database checksum, backup and dry-run evidence, credentials, TLS configuration,
-  confirmation token, and fixed first-batch scope. No Yahoo synchronization has completed with a
-  checkpoint.
+  confirmation token, and fixed first-batch scope. Approved incident recovery represented 97
+  messages, recorded three explicitly accepted unavailable UIDs, and wrote checkpoint UID 53392.
 - Shared Gmail and Hotmail OAuth IMAP foundation using XOAUTH2, provider-specific TLS endpoints,
   inclusive server-side date bounds, the existing bounded read-only transport, provider/account/
   folder/date checkpoint isolation, external sanitized evidence reports, and offline production
   approval gates. Temporary two-pass simulations prove repeat-safe evidence ingestion. Real OAuth
   authorization and read-only validation completed for the exact Gmail `jobs` and Hotmail `Job`
   folders: Gmail reported 242 matches and Hotmail reported 6,045 matches since 2024-07-01; bounded
-  25-message dry runs completed without failures, database writes, or mailbox mutations. Neither
-  provider has been synchronized into the runtime database.
+  25-message dry runs completed without failures, database writes, or mailbox mutations. Approved
+  bounded production runs represented 100 Gmail and 100 Hotmail messages. Immediate repeat passes
+  added zero messages for both providers and mailbox mutations remained zero.
 - Read-only `GET /sync/status` API and dashboard panel for provider evidence and checkpoint state.
   Account namespaces are hashed and credentials and message content are never returned.
 - Version 1 deterministic classification benchmark with 33 version-controlled sanitized cases,
@@ -69,6 +70,16 @@ the product and architecture documents remain part of the roadmap unless explici
   withdrawal and explicit recruiter-screen, technical, hiring-manager, panel, onsite, final-round,
   and assessment differentiation. The current fixture benchmark scores 100%; production accuracy
   remains unproven until reviewed real evidence is available.
+- Sprint 12 Version 1 candidate with additive Company, Resume, Application, JobDescription, Offer,
+  RecruiterRelationship, Note, and Interaction persistence; local correction APIs; company
+  timelines; application/offer/resume/company/settings dashboard views; deterministic resume/job
+  scoring; and repeatable temporary-database product and performance tests. The candidate
+  migration is `20260808_0007` and is applied to the runtime database.
+- Sprint 12 production closeout completed with 7,750 jobs, 10 import audit rows, 297 immutable
+  imported messages/classifications/IMAP metadata rows, two recruiters, 12 interview events, and
+  three provider checkpoints. Runtime integrity and foreign-key checks pass. The final verified
+  external backup is
+  `/Users/solovatmacpro16/Documents/job-intelligence-backups/sprint-12/final/jobs-20260808T214439Z.sqlite3`.
 
 ## Prototype
 
@@ -82,16 +93,6 @@ requirements or production reliability goals.
 
 ## In Progress
 
-- Sprint 11 production email completion. Provider-neutral Gmail/Hotmail OAuth transport,
-  checkpointing, live approval gates, status visibility, and benchmark coverage are implemented;
-  live synchronization and Yahoo incident recovery remain separately approval-gated operational
-  work.
-- Sprint 10.1 remediation of the first bounded Yahoo production attempt. The fetch completed 100
-  messages, but the original mutating idempotency pass accepted one dependency-ordered message
-  and aborted before checkpoint creation. The preserved incident database contains 95 Yahoo
-  provenance rows, 19 additive Yahoo jobs, and no checkpoint; the original 7,718 jobs and four
-  import rows remain logically unchanged. Live recovery is not yet approved.
-
 - Regression coverage expansion for import parsing, matching, and analytics.
 - Progressive extraction of the backend monolith into the `backend/app` package.
 - Review and separately plan remediation for pre-Sprint-1 duplicate historical records.
@@ -100,12 +101,8 @@ requirements or production reliability goals.
 
 ## Planned
 
-- Approved production Gmail and Hotmail synchronization.
-- Approval-gated recovery of the five unresolved Yahoo UIDs, then incremental Yahoo IMAP
-  production synchronization; live Hotmail and other IMAP synchronization.
-- Recruiter relationship scoring, notes, reminders, and editing.
-- First-class applications, emails, companies, resumes, and offers, plus richer interview editing
-  and calendar augmentation.
+- Continued bounded incremental synchronization beyond the first reviewed production batches.
+- First-class email-thread reconstruction and richer interview editing/calendar augmentation.
 - Resume intelligence and automatic recommendations.
 - Follow-up reminders and calendar augmentation.
 - AI interview coach and company intelligence.
