@@ -61,7 +61,11 @@ def verify_database(path: Path, *, allow_live_database: bool) -> None:
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
-    if revision not in {("20260712_0005",), ("20260712_0006",)}:
+    if revision not in {
+        ("20260712_0005",),
+        ("20260712_0006",),
+        ("20260808_0007",),
+    }:
         raise SystemExit("Database must include the Interview Pipeline schema")
     if not required.issubset(tables):
         raise SystemExit("Database is missing required Interview Pipeline tables")

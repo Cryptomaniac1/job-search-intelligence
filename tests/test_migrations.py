@@ -29,20 +29,28 @@ def test_baseline_migration_builds_current_two_table_schema(tmp_path: Path) -> N
 
     assert tables == {
         "alembic_version",
+        "applications",
+        "companies",
         "email_classifications",
         "email_imports",
         "imported_messages",
         "interview_events",
         "interviews",
+        "interactions",
         "imap_message_metadata",
         "imap_sync_checkpoints",
         "jobs",
+        "job_descriptions",
+        "notes",
+        "offers",
         "recruiter_company_links",
         "recruiter_email_addresses",
         "recruiter_job_links",
         "recruiters",
+        "recruiter_relationships",
+        "resumes",
     }
-    assert revision == ("20260712_0006",)
+    assert revision == ("20260808_0007",)
 
 
 def test_upgrade_from_baseline_preserves_existing_rows(tmp_path: Path) -> None:
@@ -131,7 +139,7 @@ def test_alembic_uses_database_path_secondary_override(tmp_path: Path) -> None:
 
     with sqlite3.connect(database_path) as connection:
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()
-    assert revision == ("20260712_0006",)
+    assert revision == ("20260808_0007",)
 
 
 def test_classification_migration_from_live_revision_is_additive(tmp_path: Path) -> None:
@@ -173,7 +181,7 @@ def test_classification_migration_from_live_revision_is_additive(tmp_path: Path)
 
     assert after == before
     assert classifications == 0
-    assert revision == "20260712_0006"
+    assert revision == "20260808_0007"
 
 
 def test_recruiter_migration_from_live_revision_is_additive(tmp_path: Path) -> None:
@@ -236,7 +244,76 @@ def test_recruiter_migration_from_live_revision_is_additive(tmp_path: Path) -> N
     assert indexes["ix_recruiter_job_job_id"] is False
     assert unique_columns == ["recruiter_id", "job_id", "relationship_type"]
     assert "ck_recruiter_job_relationship_type" in table_sql
-    assert revision == "20260712_0006"
+    assert revision == "20260808_0007"
+
+
+def test_version1_migration_is_additive_and_reversible(tmp_path: Path) -> None:
+    database_path = tmp_path / "version1-closeout.db"
+    environment = os.environ.copy()
+    environment["JOBS_DB_PATH"] = str(database_path)
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "20260712_0006"],
+        check=True,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    with sqlite3.connect(database_path) as connection:
+        before = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in (
+                "jobs",
+                "email_imports",
+                "imported_messages",
+                "email_classifications",
+                "recruiters",
+                "interviews",
+                "imap_message_metadata",
+            )
+        }
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        check=True,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    with sqlite3.connect(database_path) as connection:
+        after = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in before
+        }
+        new_counts = {
+            table: connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in (
+                "applications",
+                "companies",
+                "resumes",
+                "job_descriptions",
+                "offers",
+                "recruiter_relationships",
+                "notes",
+                "interactions",
+            )
+        }
+        revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
+    assert after == before
+    assert set(new_counts.values()) == {0}
+    assert revision == "20260808_0007"
+
+    subprocess.run(
+        [sys.executable, "-m", "alembic", "downgrade", "20260712_0006"],
+        check=True,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    with sqlite3.connect(database_path) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+    assert not set(new_counts).intersection(tables)
 
 
 def test_interview_migration_upgrade_and_downgrade_preserve_revision_0004(

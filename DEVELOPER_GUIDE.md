@@ -466,3 +466,20 @@ pre-commit run --all-files
 - Verify migrations against a temporary database.
 - Validate existing API and browser-extension compatibility.
 - Reconfirm the historical database checksum, schema, and row counts.
+
+## Sprint 12 Version 1 candidate
+
+The additive Version 1 product schema is revision `20260808_0007`. Exercise it only with a
+temporary database during feature review:
+
+```bash
+export JOBS_DB_PATH="$(mktemp -d)/version1.db"
+backend/.venv/bin/python -m alembic upgrade head
+backend/.venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8000
+```
+
+The candidate adds local applications, companies and timelines, resumes, job descriptions,
+offers, recruiter relationship state, notes, interactions, Version 1 analytics, and a settings
+status view. Existing API contracts remain compatible. Existing databases are never migrated at
+startup, and `data/jobs.db` must not be upgraded to `20260808_0007` without a separate verified
+backup and explicit live-migration approval.

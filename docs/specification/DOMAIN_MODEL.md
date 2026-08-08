@@ -2,13 +2,14 @@
 
 ## Status
 
-The entities below are **target domain concepts** for the planned Career Operating System. They
-provide stable business vocabulary for future design and refactoring. They are not a statement that
-corresponding ORM models, tables, endpoints, or workflows already exist.
+The entities below remain the **target domain concepts** for the Career Operating System. They
+provide stable business vocabulary for design and refactoring; a concept may be only partially
+implemented even when an additive table or endpoint now exists.
 
-The concepts remain target vocabulary even where incremental foundations now exist. The current
-schema includes the legacy `jobs` model plus provenance, classification, Recruiter CRM, and Sprint
-7 Interview Pipeline evidence tables; it does not yet implement the complete target model.
+The Sprint 12 candidate adds minimum first-class Company, Resume, Application, JobDescription,
+Offer, RecruiterRelationship, Note, and Interaction records alongside the legacy `jobs` model and
+the provenance, classification, Recruiter CRM, and Interview Pipeline evidence tables. It does not
+rewrite historical rows, replace immutable email evidence, or claim the complete future model.
 
 ## Target domain concepts
 
@@ -39,15 +40,15 @@ context for applications, communication history, interviews, and offers.
 
 A specific employment opportunity or posting, including title, location, description, source,
 requisition identity, and other listing metadata. A Job may be discovered before an Application
-exists. The current `jobs` table combines aspects of this target concept with application tracking;
-separating them is future migration work.
+exists. The current `jobs` table remains the preserved opportunity record; Sprint 12 links a
+first-class Application to it rather than rewriting historical jobs.
 
 ### Interview
 
 A scheduled or completed evaluation stage associated with an Application. Sprint 7 implements an
-additive job-linked aggregate and immutable email event evidence, including assessments, while the
-full Application relationship, editing, notes, and calendar augmentation remain planned. Calendar
-data augments rather than replaces email evidence.
+additive job-linked aggregate and immutable email event evidence, including assessments. Sprint 12
+adds the application-to-offer record path but does not rewrite the existing interview evidence.
+Calendar data augments rather than replaces email evidence.
 
 ### Resume
 
@@ -68,5 +69,6 @@ status to a job record.
 - Emails may provide evidence for several related concepts while retaining their original account.
 - Interviews belong to Applications and may be augmented by calendar events.
 
-These relationships are design guidance only. Detailed persistence design requires a separately
-reviewed migration plan that preserves the current historical data.
+These relationships remain design guidance beyond the minimum Sprint 12 candidate. Applying its
+additive persistence to the runtime database requires a separately reviewed migration plan and
+explicit approval that preserves the current historical data.

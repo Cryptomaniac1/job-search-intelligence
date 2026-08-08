@@ -378,6 +378,7 @@ class YahooImapClient:
         progress_every: int = 100,
         progress_callback: ProgressCallback | None = None,
         only_uids: set[int] | None = None,
+        allow_missing_only_uids: bool = False,
     ) -> YahooImapScan:
         if progress_every <= 0:
             raise ValueError("Progress interval must be greater than zero")
@@ -395,7 +396,7 @@ class YahooImapClient:
             if only_uids is not None
             else search.uids
         )
-        if only_uids is not None and set(selected) != only_uids:
+        if only_uids is not None and set(selected) != only_uids and not allow_missing_only_uids:
             missing = sorted(only_uids - set(selected))
             raise RuntimeError(f"Requested recovery UIDs were not found: {missing}")
         uids = selected[:limit] if limit is not None else selected
@@ -753,6 +754,7 @@ def scan_with_reconnect(
     progress_callback: ProgressCallback | None = None,
     connection_factory: ConnectionFactory = DEFAULT_CONNECTION_FACTORY,
     only_uids: set[int] | None = None,
+    allow_missing_only_uids: bool = False,
 ) -> YahooImapScan:
     """Retry one transient connection abort without changing mailbox state."""
     for attempt in range(2):
@@ -768,6 +770,7 @@ def scan_with_reconnect(
                     progress_every=progress_every,
                     progress_callback=progress_callback,
                     only_uids=only_uids,
+                    allow_missing_only_uids=allow_missing_only_uids,
                 )
                 return replace(scan, reconnect_count=scan.reconnect_count + attempt)
         except (imaplib.IMAP4.abort, OSError) as exc:

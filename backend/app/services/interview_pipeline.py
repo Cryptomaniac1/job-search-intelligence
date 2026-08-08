@@ -124,6 +124,8 @@ def _extract_schedule(
     ambiguity: list[str] = []
     local_start = _local_datetime(date_value, times[0]) if date_value and times else ""
     local_end = _local_datetime(date_value, times[1]) if date_value and len(times) > 1 else ""
+    if date_value and times and not local_start:
+        ambiguity.append("date or time could not be parsed; schedule omitted")
     if local_start and not zone:
         ambiguity.append("timezone missing or ambiguous; UTC was not fabricated")
     if len(zones) > 1:
@@ -148,7 +150,10 @@ def _extract_date(text: str) -> str:
         value = match.group(1)
         if format_string == "%B %d, %Y":
             value = _expand_month(value)
-        return datetime.strptime(value, format_string).date().isoformat()
+        try:
+            return datetime.strptime(value, format_string).date().isoformat()
+        except ValueError:
+            continue
     return ""
 
 
@@ -172,7 +177,10 @@ def _expand_month(value: str) -> str:
 
 def _local_datetime(date_value: str, time_value: str) -> str:
     clean_time = re.sub(r"\s+", " ", time_value.strip().upper())
-    parsed_time = datetime.strptime(clean_time, "%I:%M %p" if ":" in clean_time else "%I %p")
+    try:
+        parsed_time = datetime.strptime(clean_time, "%I:%M %p" if ":" in clean_time else "%I %p")
+    except ValueError:
+        return ""
     return f"{date_value}T{parsed_time.time().isoformat()}"
 
 

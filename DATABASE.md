@@ -138,6 +138,8 @@ recovery gate. The SQLite-safe incident backup and sanitized evidence are extern
 - `20260712_0004`: deterministic Recruiter CRM foundation and job relationships.
 - `20260712_0005`: deterministic Interview Pipeline aggregates and immutable event evidence.
 - `20260712_0006`: Yahoo IMAP checkpoints and immutable UID transport metadata.
+- `20260808_0007`: additive Version 1 product records for companies, resumes, applications,
+  job descriptions, offers, recruiter relationships, notes, and interactions.
 
 The live runtime database was upgraded from `20260712_0002` to `20260712_0003` on 2026-07-12
 through the approval-gated live-migration workflow. The migration preserved 7,718 `jobs` rows,
@@ -192,8 +194,34 @@ When a resolved database does not exist, startup creates its parent directory an
 database through Alembic to the current revision. Existing databases are never overwritten,
 recreated, or silently replaced.
 
-## Target architecture
+## Version 1 product closeout schema
 
-Application, Email, Recruiter, Company, Job, Interview, Resume, and Offer are target domain
-concepts described in `docs/specification/DOMAIN_MODEL.md`. Except for the legacy `jobs` table,
-Sprint 1 does not create tables for those concepts. Their persistence design remains planned.
+Revision `20260808_0007` additively creates `companies`, `resumes`, `applications`,
+`job_descriptions`, `offers`, `recruiter_relationships`, `notes`, and `interactions`. It does not
+rewrite or backfill legacy `jobs` rows or immutable email, recruiter, or interview evidence.
+Foreign keys link new records to existing entities when the relationship is explicit. Unique and
+check constraints prevent duplicate job applications and invalid lifecycle values.
+
+The migration is reversible on a disposable database, but downgrading after any Version 1 product
+record exists would destroy those new records. Use a verified backup or a separately reviewed
+evidence-preserving migration plan instead.
+
+On 2026-08-08, the ignored runtime database was approval-gated and upgraded from
+`20260712_0006` to `20260808_0007`. The pre-existing table counts and logical digests were
+preserved by the migration, all eight new tables began empty, `integrity_check` returned `ok`, and
+`foreign_key_check` returned no violations. Subsequent approved bounded provider imports were
+additive and intentionally advanced the live evidence state.
+
+After Yahoo recovery and two bounded production passes each for Gmail and Hotmail, the verified
+runtime state is 7,750 `jobs`, 10 `email_imports`, 297 each of `imported_messages`,
+`email_classifications`, and `imap_message_metadata`, two recruiters, 12 interview events, and
+three provider checkpoints. The Gmail and Hotmail repeat passes added zero messages. The final
+SHA-256 is `382c42c9a7e1a104baf8c854c3eb3c76cd0b46210920fee505c882358d030367`.
+The verified final backup and metadata are:
+
+- `/Users/solovatmacpro16/Documents/job-intelligence-backups/sprint-12/final/jobs-20260808T214439Z.sqlite3`
+- `/Users/solovatmacpro16/Documents/job-intelligence-backups/sprint-12/final/jobs-20260808T214439Z.metadata.json`
+
+Application, Email, Recruiter, Company, Job, Interview, Resume, and Offer remain the canonical
+domain vocabulary described in `docs/specification/DOMAIN_MODEL.md`. Sprint 12 implements the
+minimum additive persistence needed for daily Version 1 use; richer intelligence remains planned.

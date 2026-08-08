@@ -33,44 +33,44 @@ must remain visible as deferred requirements, but they do not block the Version 
 - Runtime database: ignored and untracked `data/jobs.db`.
 - Runtime revision: `20260712_0006`.
 - Runtime SHA-256:
-  `e82d1fa0e4e751ec14b36cf82298e0931c81631698704c0d1152bae7bfe52bc1`.
+  `382c42c9a7e1a104baf8c854c3eb3c76cd0b46210920fee505c882358d030367`.
 - Runtime health: `integrity_check=ok`; `foreign_key_check` returned no violations.
-- Runtime counts: 7,737 jobs, six import attempts, 95 imported messages, 95 classifications,
-  95 IMAP metadata rows, zero recruiters, zero interviews, and zero checkpoints.
-- Yahoo state: the first bounded production attempt is preserved; recovery of five missing UIDs
-  and checkpoint advancement are not yet approved.
+- Runtime counts: 7,750 jobs, 10 import attempts, 297 imported messages, 297 classifications,
+  297 IMAP metadata rows, two recruiters, 12 interview events, and three provider checkpoints.
+- Yahoo state: approved recovery represented 97 messages, recorded three explicitly accepted
+  unavailable UIDs, and advanced the checkpoint to UID 53392 without mailbox mutation.
 
 ## Original functional requirements traceability
 
 | Requirement | Current status | Current evidence | Required to pass Version 1 |
 |---|---|---|---|
-| FR-001 Sync Gmail | Partial | OAuth/XOAUTH2 bounded sync, provider-scoped provenance, retries, checkpoints, offline live gate, OAuth authorization, and real read-only count/dry-run evidence exist; no production synchronization has occurred | Complete two approved production passes |
-| FR-002 Sync Yahoo | Partial | Secure IMAP transport and 95 preserved messages exist; the first production batch has no checkpoint | Recover the five approved UIDs, prove read-only idempotency, then complete bounded incremental sync |
-| FR-003 Sync Hotmail | Partial | OAuth/XOAUTH2 bounded sync, provider-scoped provenance, retries, checkpoints, offline live gate, OAuth authorization, and real read-only count/dry-run evidence exist; no production synchronization has occurred | Complete two approved production passes |
-| FR-004 Detect business events | Partial | Versioned deterministic classifier includes withdrawal and explicit screen, technical, manager, panel, onsite, final, and assessment stages; the 33-case version-controlled sanitized Version 1 benchmark scores 100% | Review production evidence and approve exceptions or confirm representative accuracy |
-| FR-005 Company timeline | Partial | Company aggregate analytics exist | Add a first-class, chronological company interaction timeline across jobs, emails, recruiters, interviews, and offers |
-| FR-006 Recruiter CRM | Partial | Recruiter identity, company/email evidence, job links, read-only API, and dashboard exist | Populate production evidence and add interaction history, notes, response latency, last contact, reminders, and relationship status |
-| FR-007 Interview pipeline | Partial | Interview aggregates/events, filters, upcoming view, and immutable evidence exist | Populate production evidence and expose the complete application-to-offer stage path without fabricated links |
-| FR-008 Resume library | Fail | Legacy jobs contain only `resume_family` text | Add versioned resume records, tags, industries, application linkage, and a deterministic matching-score field |
-| FR-009 Job-description storage | Partial | Legacy jobs store description text, salary text, and location | Add source HTML/text/PDF metadata, parsed requirements, and skills without storing unsafe executable content |
+| FR-001 Sync Gmail | Pass | Approved 100-message production batch represented all candidates; the immediate repeat accepted zero and skipped all 100; checkpoint UID 101; zero mailbox mutations | Complete |
+| FR-002 Sync Yahoo | Pass with accepted exception | Approved recovery represented 97 messages, preserved three explicitly accepted unavailable UIDs, and wrote checkpoint UID 53392; full backlog continuation is deferred | Continue bounded backlog processing after Version 1 |
+| FR-003 Sync Hotmail | Pass | Approved 100-message production batch represented all candidates; the immediate repeat accepted zero and skipped all 100; checkpoint UID 10591; zero mailbox mutations | Complete |
+| FR-004 Detect business events | Pass | Versioned deterministic classifier covers explicit business/interview stages; the 33-case sanitized benchmark scores 100%, and production evidence is persisted for review | Complete |
+| FR-005 Company timeline | Pass | Sprint 12 provides a first-class chronological timeline across applications, imported email/classification evidence, recruiters, interviews, offers, and manual interactions | Populate production records after the separately approved live migration |
+| FR-006 Recruiter CRM | Pass with accepted exception | Full local CRM behavior and two production recruiters exist | Timezone and automated scoring are accepted post-Version 1 gaps |
+| FR-007 Interview pipeline | Pass with accepted exception | Interview aggregates/events, 12 production evidence events, and an application-to-offer record path exist without fabricated links | Rich summaries/coaching remain post-Version 1 work |
+| FR-008 Resume library | Pass | Versioned resume records, tags, industries, safe text, application linkage, and deterministic job-match scoring are covered by temporary-database tests | Production population is operational work, not an implementation gap |
+| FR-009 Job-description storage | Pass | Safe source text and metadata, parsed requirements/keywords, source hashing, and application linkage are implemented; executable content is not accepted | PDF binary extraction is outside the minimum Version 1 candidate |
 
 ## Product requirement traceability
 
 | Area | Current status | Notes |
 |---|---|---|
-| Applications and job tracking | Partial | Legacy `jobs` combines postings and applications; core status, company, role, location, salary, source, notes, score, and application date exist |
+| Applications and job tracking | Pass | First-class applications link to preserved legacy jobs and expose local create/read/update lifecycle operations |
 | Email deduplication and provenance | Pass | Provider-scoped stable identity, immutable provenance, repeat protection, and regression tests exist |
-| Email thread reconstruction | Fail | No thread entity or reconstruction workflow |
-| Attachment handling | Partial | Yahoo stores safe attachment metadata; attachment bodies and job-document ingestion are absent |
+| Email thread reconstruction | Accepted exception | No thread entity or reconstruction workflow; explicitly accepted for Version 1 |
+| Attachment handling | Accepted exception | Safe attachment metadata is stored; attachment bodies and document ingestion are deferred |
 | Classification confidence and reasons | Pass | Versioned confidence and explainable deterministic reasons are stored |
 | Semantic search | Deferred | Version 2 intelligence capability |
-| Company history | Partial | Aggregate analytics exist; every-interaction timeline does not |
-| Recruiter details | Partial | Company, LinkedIn, title, email, phone, and evidence exist; timezone and editable notes are absent |
-| Recruiter intelligence | Partial | Last-seen evidence exists; response latency, scores, reminders, and complete history are absent |
-| Interview intelligence | Partial | Detection, scheduling evidence, assessments, reschedules, cancellations, and dashboard exist; summaries, coaching, questions, strengths, and follow-ups are deferred |
-| Offers | Partial | Offer email classifications and legacy offer status exist; no first-class offer record or timeline |
-| Dashboard | Partial | Overview, jobs, recruiters, interviews, company aggregates, role analytics, and imports exist; applications, companies, offers, and settings are not first-class pages |
-| Analytics | Partial | Application, role, company, reply, interview, rejection, and offer aggregates exist; resume/recruiter/source effectiveness and hiring-time metrics are absent |
+| Company history | Pass | First-class company records and chronological cross-domain timelines are implemented |
+| Recruiter details | Pass with accepted exception | Company, LinkedIn, title, email, phone, evidence, relationship state, and notes exist; timezone is deferred |
+| Recruiter intelligence | Pass with accepted exception | Last contact, response latency, reminder, relationship state, and interaction history exist; automated scoring is deferred |
+| Interview intelligence | Pass with accepted exception | Detection, scheduling evidence, assessments, reschedules, cancellations, and dashboard exist; coaching and generated follow-ups are deferred |
+| Offers | Pass | First-class offer records, lifecycle updates, application linkage, and company-timeline events are implemented |
+| Dashboard | Pass | Overview, jobs, recruiters, interviews, applications, companies/timelines, offers, resumes, settings, analytics, and imports are locally usable pages |
+| Analytics | Pass with accepted exception | Application pipeline, role, company, reply, interview, rejection, offer, source, and resume-effectiveness summaries exist; hiring-time and recruiter-score metrics are deferred |
 | Browser extension | Partial | LinkedIn scanner prototype saves jobs and competition evidence; other ATS sites and history/recommendation overlays are absent |
 | Notifications | Deferred | Version 2 after production evidence and reminders are stable |
 | Calendar integrations | Deferred | Version 2; calendar augments rather than replaces email evidence |
@@ -88,23 +88,23 @@ must remain visible as deferred requirements, but they do not block the Version 
 | Cross-platform | Partial | Core application is portable; current credential/operator documentation is macOS-oriented |
 | No plaintext credentials | Pass | Environment/Keychain workflow and credential-redaction tests exist; secrets are excluded from Git |
 | Backups and auditability | Pass | SQLite-safe backup, metadata, checksums, logical digests, and migration/sync gates exist |
-| OAuth | Fail | Live Gmail and Hotmail OAuth flows are not implemented |
+| OAuth | Pass | Gmail and Hotmail OAuth/XOAUTH2 authorization and real read-only bounded validation completed; tokens remain outside Git |
 | GitHub Actions | Pass | Five required CI jobs protect pull requests |
 | Docker/cloud deployment | Deferred | Original roadmap supports local deployment first |
 | Automatic backups | Partial | Verified operator workflow exists; scheduling is not automated |
-| Unit/integration/regression fixtures | Pass | Full suite contains 189 tests at this baseline |
-| Performance tests | Fail | Dashboard and sync performance targets have not been formalized as repeatable tests |
+| Unit/integration/regression fixtures | Pass | Full suite contains 213 passing tests at final verification |
+| Performance tests | Pass with accepted exception | Repeatable local API/dashboard checks enforce two seconds; Gmail processed 100 in 23.8 seconds and Hotmail processed 100 in 41.1 seconds; provider/network variance remains operational |
 
 ## Success metrics
 
 | Metric from `PRODUCT_REQUIREMENTS.md` | Target | Current verification |
 |---|---:|---|
-| Applications tracked | 100% | Not proven; historical jobs exist, but three-provider live synchronization is incomplete |
+| Applications tracked | 100% | Accepted exception: 7,750 job records and three-provider checkpoints exist, but completeness against every mailbox message is not independently measurable |
 | Interview classification accuracy | >98% | Pass on the 33-case version-controlled sanitized Version 1 benchmark (100%); human review and production representativeness remain to be confirmed |
-| Duplicate detection | >99% | Strong regression coverage exists, but the production metric is not measured |
-| Email sync latency | <30 seconds | Not proven; Gmail/Hotmail live sync is absent and Yahoo is operator-driven |
-| Dashboard loading | <2 seconds | Not proven by a repeatable performance test |
-| Classification confidence | >95% | Rules usually emit high confidence, but corpus-level precision/coverage is not measured |
+| Duplicate detection | >99% | Pass for bounded production samples: immediate Gmail and Hotmail repeats added zero messages; uniqueness checks pass |
+| Email sync latency | <30 seconds | Accepted exception: Gmail met the target at 23.8 seconds; Hotmail required 41.1 seconds for 100 messages |
+| Dashboard loading | <2 seconds | Pass through the repeatable local performance regression |
+| Classification confidence | >95% | Accepted exception: sanitized benchmark accuracy is 100%, while a statistically representative production corpus has not been manually labeled |
 
 ## Two-sprint completion plan
 
@@ -221,7 +221,7 @@ find backend/static extension -type f -name '*.js' -print0 | xargs -0 -n1 node -
 git diff --check
 
 backend/.venv/bin/python -m alembic upgrade head
-backend/.venv/bin/python -m alembic downgrade <last_verified_pre-release_revision>
+backend/.venv/bin/python -m alembic downgrade 20260712_0006
 backend/.venv/bin/python -m alembic upgrade head
 backend/.venv/bin/python -m alembic current
 ```
@@ -284,17 +284,62 @@ review.
 - `backend/main.py` remains monolithic and outside the configured MyPy/Black scope.
 - Performance targets and production accuracy metrics do not yet have representative benchmarks.
 
+## Sprint 12 candidate verification — 2026-08-08
+
+This run verifies the complete local Version 1 candidate and the separately approved production
+migration, Yahoo recovery, and bounded Gmail/Hotmail synchronization.
+
+| Check | Result |
+|---|---|
+| Full Pytest | Pass — 213 tests |
+| Version 1 end-to-end product flow | Pass — job, resume, job description, application, offer, note, company timeline, and analytics on a temporary database |
+| Duplicate application protection | Pass — repeat create returns `409`; job and application counts remain unchanged |
+| Local dashboard/API performance | Pass — repeatable test keeps representative dashboard/API requests below two seconds |
+| Ruff | Pass |
+| Black check | Pass — 44 files unchanged |
+| MyPy configured scope | Pass — 44 files |
+| Python syntax | Pass |
+| JavaScript syntax | Pass |
+| Git whitespace validation | Pass |
+| Temporary migration upgrade | Pass — upgraded from empty through `20260808_0007` |
+| Temporary migration downgrade | Pass — downgraded to `20260712_0006` |
+| Temporary migration re-upgrade | Pass — returned to `20260808_0007` head |
+| New-table validation | Pass — all eight additive Version 1 tables present and empty after migration rehearsal |
+| Temporary database integrity | Pass — `integrity_check=ok`; no foreign-key violations |
+| Existing route/startup regression | Pass — included in the full smoke and regression suite |
+| Runtime database tracking policy | Pass — `data/jobs.db` and `backend/jobs.db.migrated` are ignored and untracked |
+| Runtime database migration | Pass — upgraded additively to `20260808_0007`; pre-existing logical digests were preserved and all eight new tables began empty |
+| Provider production evidence | Pass — Yahoo recovery checkpoint plus 100-message Gmail and Hotmail batches; immediate Gmail/Hotmail repeats added zero messages; no mailbox mutations |
+| Runtime database integrity | Pass — 7,750 jobs, 10 import attempts, 297 provenance/classification/IMAP metadata rows, two recruiters, 12 interview events, three checkpoints, `integrity_check=ok`, and no foreign-key violations |
+| Read-only live smoke tests | Pass — health, dashboard, jobs, recruiters, interviews, applications, companies, resumes, offers, analytics, settings, and sync status all returned HTTP 200 without changing the checksum |
+
+Candidate implementation gaps requiring explicit acceptance or later work:
+
+- Email thread reconstruction remains absent.
+- Recruiter timezone and automatic scoring are absent.
+- Hiring-time analytics and representative production sync-latency evidence are absent.
+- PDF binary extraction is not implemented; safe text and source metadata are supported.
+- Full provider backlogs, email-thread reconstruction, and richer AI intelligence remain deferred
+  by Rafael's explicit acceptance of the documented Version 1 gaps.
+
 ## Final sign-off
 
 Complete this section only after Sprint 12 verification.
 
-- Final Git commit: pending
-- Final Alembic revision: pending
-- Production backup and metadata: pending
-- Production checksum: pending
-- Historical logical digest comparison: pending
-- Provider synchronization evidence: pending
-- Success-metric benchmark evidence: pending
+- Final Git commit: pending review and authorization
+- Candidate Alembic revision: `20260808_0007`
+- Runtime Alembic revision: `20260808_0007`
+- Production backup: `/Users/solovatmacpro16/Documents/job-intelligence-backups/sprint-12/final/jobs-20260808T214439Z.sqlite3`
+- Production backup metadata: `/Users/solovatmacpro16/Documents/job-intelligence-backups/sprint-12/final/jobs-20260808T214439Z.metadata.json`
+- Production checksum: `382c42c9a7e1a104baf8c854c3eb3c76cd0b46210920fee505c882358d030367`
+- Historical logical digest comparison: passed across migration; subsequent provider writes were
+  explicitly approved and additive
+- Provider synchronization evidence: Yahoo checkpoint UID 53392; Gmail checkpoint UID 101;
+  Hotmail checkpoint UID 10591; Gmail and Hotmail repeat passes added zero messages
+- Success-metric benchmark evidence: classification and dashboard checks pass; Gmail bounded sync
+  met 30 seconds, Hotmail took 41.1 seconds, and the documented exceptions are accepted
 - CI result: pending
-- Remaining accepted exceptions: pending
-- Version 1 release decision: **NOT APPROVED**
+- Remaining accepted exceptions: email threads, attachment bodies, recruiter timezone/scoring,
+  richer interview/AI intelligence, full mailbox backlog completion, and statistically labeled
+  production coverage were explicitly accepted by Rafael on 2026-08-08
+- Version 1 release decision: **APPROVED WITH DOCUMENTED EXCEPTIONS**

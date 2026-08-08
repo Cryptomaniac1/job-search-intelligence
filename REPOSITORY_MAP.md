@@ -12,10 +12,13 @@ backend/
       provider_live_sync.py # offline Gmail/Hotmail production approval gate
       imap_checkpoint.py  # UID/UIDVALIDITY checkpoint persistence
       sync_status.py      # credential-safe provider status summaries
+      version1_product.py # additive applications, companies, resumes, offers, and timelines
     models/
     schemas/
     database/
     utils/
+    schemas/
+      version1.py         # Version 1 product request schemas
   main.py
   static/
 
@@ -28,6 +31,7 @@ backups/
   .gitkeep                # directory retained; contents ignored
 
 migrations/
+  versions/20260808_0007_version1_product_closeout.py # additive Version 1 product schema
 scripts/
   import_historical_interviews.py # protected Gmail/Hotmail/Yahoo interview replay
   rehearse_historical_interviews.py # copy-only two-pass replay and evidence workflow
@@ -40,6 +44,7 @@ tests/
   fixtures/classification/ # canonical cases and Version 1 reviewed benchmark
   fixtures/interview/     # sanitized deterministic extraction cases
   fixtures/yahoo_incident/ # sanitized 94/1/5 incident shape
+  test_version1_product.py # Version 1 API, idempotency, dashboard, and performance coverage
 extension/
 docs/
 ```
