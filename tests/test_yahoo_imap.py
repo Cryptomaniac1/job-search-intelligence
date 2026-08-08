@@ -98,6 +98,7 @@ class FakeImap:
         default_messages: bool = False,
         search_page_size: int | None = None,
         repeat_search_page: bool = False,
+        clamp_search_to_last_uid: bool = False,
     ) -> None:
         self.host = host
         self.port = port
@@ -119,6 +120,7 @@ class FakeImap:
         self.default_messages = default_messages
         self.search_page_size = search_page_size
         self.repeat_search_page = repeat_search_page
+        self.clamp_search_to_last_uid = clamp_search_to_last_uid
         self.calls: builtins.list[tuple[Any, ...]] = []
 
     def login(self, user: str, password: str) -> tuple[str, builtins.list[bytes]]:
@@ -127,6 +129,11 @@ class FakeImap:
             raise imaplib.IMAP4.abort("temporary disconnect")
         if self.bad_password:
             raise imaplib.IMAP4.error(f"bad password {password} for {user}")
+        return "OK", [b"authenticated"]
+
+    def authenticate(self, mechanism: str, authobject: Any) -> tuple[str, builtins.list[bytes]]:
+        response = authobject(b"")
+        self.calls.append(("authenticate", mechanism, response))
         return "OK", [b"authenticated"]
 
     def list(self) -> tuple[str, builtins.list[bytes]]:
@@ -155,6 +162,8 @@ class FakeImap:
             ]
             if self.repeat_search_page and start_uid > min(self.uids, default=1):
                 matches = list(self.uids)
+            if self.clamp_search_to_last_uid and self.uids and start_uid > max(self.uids):
+                matches = [max(self.uids)]
             if self.search_page_size is not None:
                 matches = matches[: self.search_page_size]
             return "OK", [" ".join(str(uid) for uid in matches).encode()]
@@ -877,6 +886,28 @@ def test_paginated_uid_search_above_one_thousand_is_complete() -> None:
     assert scan.search_page_count == 3
     assert scan.search_complete is True
     assert scan.metrics.imap_search_commands == 3
+
+
+def test_uid_search_last_uid_sentinel_marks_complete_without_duplication() -> None:
+    factory = Factory(
+        uids=tuple(range(1, 6_046)),
+        clamp_search_to_last_uid=True,
+        default_messages=True,
+    )
+
+    scan = scan_with_reconnect(
+        settings(),
+        folder="Jobs",
+        since_date=SINCE_DATE,
+        count_only=True,
+        connection_factory=factory,
+    )
+
+    assert scan.total_matched_uid_count == 6_045
+    assert scan.partial_matched_uid_count == 6_045
+    assert scan.last_uid == 6_045
+    assert scan.search_page_count == 2
+    assert scan.search_complete is True
 
 
 def test_repeated_search_page_reports_incomplete_without_looping() -> None:

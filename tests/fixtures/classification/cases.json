@@ -16,6 +16,7 @@
   {"expected":"OFFER_DECLINED","subject":"Declined","body":"Your offer decline confirmed."},
   {"expected":"REJECTION","subject":"Application update","body":"We decided not to proceed."},
   {"expected":"POSITION_CLOSED","subject":"Role update","body":"The position has been closed."},
+  {"expected":"WITHDRAWAL","subject":"Application update","body":"Your application withdrawal confirmed."},
   {"expected":"GHOSTING","subject":"No response","body":"I have not heard back after multiple follow-ups."},
   {"expected":"NETWORKING","subject":"Coffee","body":"Would you be open to a coffee chat?"},
   {"expected":"REFERRAL","subject":"Introduction","body":"An employee referred you for this role."},

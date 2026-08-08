@@ -208,7 +208,8 @@ def _interview_type(text: str, classification: str) -> str:
         ("technical", ("technical interview", "coding interview")),
         ("panel", ("panel interview", "interview panel")),
         ("onsite", ("onsite interview", "on-site interview")),
-        ("hiring_manager", ("hiring manager interview",)),
+        ("hiring_manager", ("hiring manager interview", "manager interview")),
+        ("final", ("final interview", "final round interview")),
     ):
         if any(phrase in lowered for phrase in phrases):
             return interview_type

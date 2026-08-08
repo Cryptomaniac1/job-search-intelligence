@@ -28,6 +28,27 @@
     "interview_type": "panel"
   },
   {
+    "name": "hiring manager interview",
+    "subject": "Hiring manager interview invitation",
+    "body": "Schedule your interview for Job ID: REQ-7000 on January 23, 2027 at 10:00 AM UTC for a hiring manager interview.",
+    "classification": "INTERVIEW_INVITATION",
+    "interview_type": "hiring_manager"
+  },
+  {
+    "name": "onsite interview",
+    "subject": "Onsite interview invitation",
+    "body": "Schedule your interview for Job ID: REQ-7000 on January 24, 2027 at 10:00 AM UTC for an onsite interview.",
+    "classification": "INTERVIEW_INVITATION",
+    "interview_type": "onsite"
+  },
+  {
+    "name": "final interview",
+    "subject": "Final interview invitation",
+    "body": "Schedule your interview for Job ID: REQ-7000 on January 25, 2027 at 10:00 AM UTC for a final round interview.",
+    "classification": "INTERVIEW_INVITATION",
+    "interview_type": "final"
+  },
+  {
     "name": "reschedule",
     "subject": "Interview rescheduled",
     "body": "Your interview rescheduled for Job ID: REQ-7000 on January 21, 2027 at 11:00 AM PST. https://zoom.us/j/7000",

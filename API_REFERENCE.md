@@ -50,6 +50,13 @@ pipeline while legacy structured application records retain their existing ident
 
 Lists import-attempt summaries. Repeat attempts are intentionally visible.
 
+### `GET /sync/status`
+
+Returns read-only synchronization state for Gmail, Hotmail, and Yahoo: evidence counts,
+classification and interview-event counts, checkpoint counts, and checkpoint progress. Account
+namespaces are exposed only as short SHA-256 references. The response contains no credentials,
+message content, or write controls.
+
 ### `GET /email-classifications`
 
 Lists classification evidence with optional `classification`, `provider`, and `limit` filters.

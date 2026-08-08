@@ -49,6 +49,7 @@ try:
         extract_recruiter,
         normalize_company as normalize_recruiter_company,
     )
+    from backend.app.services.sync_status import provider_sync_status
     from backend.app.services.yahoo_imap import YahooImapMessage
 except ModuleNotFoundError:  # Supports the existing `cd backend && uvicorn main:app` command.
     from app.database.paths import initialize_database_if_missing, resolve_database_path
@@ -65,6 +66,7 @@ except ModuleNotFoundError:  # Supports the existing `cd backend && uvicorn main
         extract_recruiter,
         normalize_company as normalize_recruiter_company,
     )
+    from app.services.sync_status import provider_sync_status
     from app.services.yahoo_imap import YahooImapMessage
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -1354,15 +1356,30 @@ def _finish_historical_import(
 
 
 def import_yahoo_imap_messages(messages: Iterable[YahooImapMessage]) -> dict[str, object]:
-    """Feed Yahoo IMAP messages through the existing deterministic evidence pipeline."""
+    """Compatibility wrapper for the original Yahoo-specific synchronization entry point."""
+    batch = list(messages)
+    if any(message.provider != "yahoo" for message in batch):
+        raise ValueError("Yahoo IMAP import accepts only Yahoo transport messages")
+    return import_imap_messages(batch)
+
+
+def import_imap_messages(messages: Iterable[YahooImapMessage]) -> dict[str, object]:
+    """Feed one provider-scoped IMAP batch through the deterministic evidence pipeline."""
     batch = sorted(messages, key=lambda message: (message.uid, message.identity))
     if not batch:
-        return _empty_yahoo_imap_summary()
-    _validate_yahoo_imap_batch(batch)
-    summary = _empty_yahoo_imap_summary()
+        return _empty_imap_summary("")
+    provider = batch[0].provider
+    if provider not in ACCOUNT_MAP:
+        raise ValueError("IMAP provider must be yahoo, gmail, or hotmail")
+    _validate_imap_batch(batch)
+    summary = _empty_imap_summary(provider)
     failures: list[dict[str, object]] = []
     with Session(engine) as session:
-        cross_account_conflicts = _yahoo_cross_account_conflicts(session, batch)
+        cross_account_conflicts = (
+            _yahoo_cross_account_conflicts(session, batch)
+            if provider == "yahoo"
+            else _imap_cross_account_conflicts(session, batch, provider)
+        )
         batch_identities = {message.identity for message in batch}
         existing_identities = {
             identity
@@ -1379,8 +1396,8 @@ def import_yahoo_imap_messages(messages: Iterable[YahooImapMessage]) -> dict[str
             summary["skipped_count"] = len(batch)
             return summary
         import_record = EmailImport(
-            mailbox_name="yahoo",
-            source_filename=f"imap:{batch[0].folder}",
+            mailbox_name=provider,
+            source_filename=f"imap:{provider}:{batch[0].folder}",
         )
         session.add(import_record)
         session.flush()
@@ -1390,12 +1407,21 @@ def import_yahoo_imap_messages(messages: Iterable[YahooImapMessage]) -> dict[str
                 continue
             try:
                 with session.begin_nested():
-                    application, matched = _record_yahoo_imap_message(
-                        session,
-                        import_record,
-                        message,
-                        cross_account_conflict=message.identity in cross_account_conflicts,
-                    )
+                    if provider == "yahoo":
+                        application, matched = _record_yahoo_imap_message(
+                            session,
+                            import_record,
+                            message,
+                            cross_account_conflict=message.identity in cross_account_conflicts,
+                        )
+                    else:
+                        application, matched = _record_imap_message(
+                            session,
+                            import_record,
+                            message,
+                            provider=provider,
+                            cross_account_conflict=message.identity in cross_account_conflicts,
+                        )
                 summary["accepted_count"] = int(summary["accepted_count"]) + 1
                 if application:
                     key = "matched_jobs" if matched else "unmatched_jobs"
@@ -1423,9 +1449,9 @@ def import_yahoo_imap_messages(messages: Iterable[YahooImapMessage]) -> dict[str
     return summary
 
 
-def _empty_yahoo_imap_summary() -> dict[str, object]:
+def _empty_imap_summary(provider: str) -> dict[str, object]:
     return {
-        "provider": "yahoo",
+        "provider": provider,
         "scanned_count": 0,
         "accepted_count": 0,
         "skipped_count": 0,
@@ -1437,21 +1463,39 @@ def _empty_yahoo_imap_summary() -> dict[str, object]:
     }
 
 
-def _validate_yahoo_imap_batch(messages: list[YahooImapMessage]) -> None:
+def _empty_yahoo_imap_summary() -> dict[str, object]:
+    return _empty_imap_summary("yahoo")
+
+
+def _validate_imap_batch(messages: list[YahooImapMessage]) -> None:
     first = messages[0]
     if any(
-        message.account_namespace != first.account_namespace
+        message.provider != first.provider
+        or message.account_namespace != first.account_namespace
         or message.folder != first.folder
         or message.uidvalidity != first.uidvalidity
         for message in messages
     ):
-        raise ValueError("Yahoo IMAP batches must use one account, folder, and UIDVALIDITY")
+        raise ValueError("IMAP batches must use one provider, account, folder, and UIDVALIDITY")
+
+
+def _validate_yahoo_imap_batch(messages: list[YahooImapMessage]) -> None:
+    _validate_imap_batch(messages)
+    if any(message.provider != "yahoo" for message in messages):
+        raise ValueError("Yahoo IMAP batches must contain only Yahoo messages")
 
 
 def _yahoo_cross_account_conflicts(
     session: Session, messages: list[YahooImapMessage]
 ) -> set[str]:
     """Plan cross-account identifier conflicts from the pre-import snapshot."""
+    return _imap_cross_account_conflicts(session, messages, "yahoo")
+
+
+def _imap_cross_account_conflicts(
+    session: Session, messages: list[YahooImapMessage], provider: str
+) -> set[str]:
+    """Plan provider-account identifier conflicts from the pre-import snapshot."""
     conflicts: set[str] = set()
     for message in messages:
         classification = classify_email(
@@ -1465,7 +1509,7 @@ def _yahoo_cross_account_conflicts(
         if not identifier:
             continue
         existing = session.scalar(select(Job).where(Job.linkedin_job_id == identifier))
-        if existing and existing.email_account and existing.email_account != "yahoo":
+        if existing and existing.email_account and existing.email_account != provider:
             conflicts.add(message.identity)
     return conflicts
 
@@ -1475,6 +1519,23 @@ def _record_yahoo_imap_message(
     import_record: EmailImport,
     message: YahooImapMessage,
     *,
+    cross_account_conflict: bool = False,
+) -> tuple[bool, bool]:
+    return _record_imap_message(
+        session,
+        import_record,
+        message,
+        provider="yahoo",
+        cross_account_conflict=cross_account_conflict,
+    )
+
+
+def _record_imap_message(
+    session: Session,
+    import_record: EmailImport,
+    message: YahooImapMessage,
+    *,
+    provider: str,
     cross_account_conflict: bool = False,
 ) -> tuple[bool, bool]:
     subject = message.subject
@@ -1490,7 +1551,7 @@ def _record_yahoo_imap_message(
         urls = extract_urls(combined)
         job, _, matched = match_or_create_application(
             session,
-            mailbox_name="yahoo",
+            mailbox_name=provider,
             company=company,
             title=title,
             applied_at=message.received_at,
@@ -1513,11 +1574,11 @@ def _record_yahoo_imap_message(
         body=body,
     )
     if recruiter_evidence or interview_evidence:
-        job = find_explicit_job(session, combined, "yahoo")
+        job = find_explicit_job(session, combined, provider)
     session.flush()
     imported = record_imported_message(
         session,
-        provider="yahoo",
+        provider=provider,
         source_import_id=import_record.id,
         identity=message.identity,
         original_message_id=message.message_id,
@@ -1535,8 +1596,12 @@ def _record_yahoo_imap_message(
         result=classification,
     )
     session.flush()
-    recruiter = _record_yahoo_imap_recruiter(
-        session, message, classification.classification.value, job, recruiter_evidence
+    recruiter = _record_imap_recruiter(
+        session,
+        message,
+        classification.classification.value,
+        job,
+        recruiter_evidence,
     )
     if interview_evidence:
         record_interview_evidence(
@@ -1544,12 +1609,12 @@ def _record_yahoo_imap_message(
             evidence=interview_evidence,
             identity=message.identity,
             classification_id=classification_record.id,
-            provider="yahoo",
+            provider=provider,
             job=job,
             recruiter=recruiter,
             observed_at=message.received_at or datetime.utcnow(),
         )
-    _record_imap_metadata(session, message)
+    _record_imap_metadata(session, message, provider=provider)
     imported.error = (
         "conflicting_identity: job identifier belongs to a different provider account"
         if cross_account_conflict
@@ -1559,6 +1624,16 @@ def _record_yahoo_imap_message(
 
 
 def _record_yahoo_imap_recruiter(
+    session: Session,
+    message: YahooImapMessage,
+    classification: str,
+    job: Optional[Job],
+    evidence: Optional[RecruiterEvidence],
+) -> Optional[Recruiter]:
+    return _record_imap_recruiter(session, message, classification, job, evidence)
+
+
+def _record_imap_recruiter(
     session: Session,
     message: YahooImapMessage,
     classification: str,
@@ -1578,7 +1653,9 @@ def _record_yahoo_imap_recruiter(
     return None
 
 
-def _record_imap_metadata(session: Session, message: YahooImapMessage) -> None:
+def _record_imap_metadata(
+    session: Session, message: YahooImapMessage, *, provider: str | None = None
+) -> None:
     attachments = [
         {
             "filename": item.filename,
@@ -1590,7 +1667,7 @@ def _record_imap_metadata(session: Session, message: YahooImapMessage) -> None:
     session.add(
         ImapMessageMetadata(
             message_identity=message.identity,
-            provider="yahoo",
+            provider=provider or message.provider,
             account_namespace=message.account_namespace,
             folder=message.folder,
             uidvalidity=message.uidvalidity,
@@ -2082,6 +2159,12 @@ def list_imports():
         }
         for record in records
     ]
+
+
+@app.get("/sync/status")
+def synchronization_status():
+    """Return non-secret, read-only provider checkpoint and evidence status."""
+    return provider_sync_status(DB_PATH)
 
 
 @app.get("/email-classifications")
