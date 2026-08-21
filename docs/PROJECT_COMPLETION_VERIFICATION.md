@@ -343,3 +343,203 @@ Complete this section only after Sprint 12 verification.
   richer interview/AI intelligence, full mailbox backlog completion, and statistically labeled
   production coverage were explicitly accepted by Rafael on 2026-08-08
 - Version 1 release decision: **APPROVED WITH DOCUMENTED EXCEPTIONS**
+
+## Sprint 12.2 analytics correction — 2026-08-08
+
+Sprint 12.2 re-ran the dashboard calculations read-only against `data/jobs.db`. The database stayed
+at Alembic revision `20260808_0007`; its SHA-256 remained
+`b0d872565ddd6fe4ce3c855d1c8dbbe624164cb9aace3bbebafdc4b53e2c6feb` before and after analysis,
+`integrity_check` returned `ok`, and the 7,750 job rows were unchanged.
+
+### Corrected production results
+
+| Metric | Former display | Corrected result | Explanation |
+|---|---:|---:|---|
+| Application-stage database rows | 7,750 | 6,457 canonical applications | Excludes 142 non-applications and collapses 1,151 repeated/overlapping identities |
+| Dated applications | Not disclosed | 3,244 | Only explicit application dates are eligible for timelines |
+| Undated applications | Counted on import date | 3,213 | Disclosed and excluded from date-based comparisons |
+| Recruiter replies | 226 | 0 linked | 15 deterministic reply/downstream evidence rows exist, but none link to a job |
+| Interviews | 226 | 0 linked | 12 classifications and 12 interview events exist, but all are unlinked |
+| Offers | 0 | 0 linked | No offer evidence exists |
+| Rejections | 10 | 0 linked | 24 rejection evidence rows exist, but none link to a job |
+
+The previous identical `226` recruiter-reply and interview totals were not two independently
+verified outcomes. Both were projections of the same legacy `job.status='interview'` rows. Those
+rows were concentrated in the Yahoo PM/TPM role family, making the former 6.3% role conversion a
+mailbox/status artifact rather than a valid role-performance result.
+
+The former July 2026 application spike was an ingestion artifact. The identity audit found 765
+duplicate email rows created by pre-idempotency repeat MBOX imports and 386 additional overlapping
+representations across sources. No rows were deleted: analytics collapses them by canonical
+application identity. Corrected July totals are 12 explicitly dated applications and 3,213
+undated canonical applications are excluded from date analytics. Application velocity is 1 in the
+rolling last 30 days, 77 in the last 60 days, and 139 in the last 90 days. August 2026 has zero
+explicitly dated applications through August 8, versus eight during July 1–8 (`-100%`). Completed
+July had 12 versus 97 in June (`-87.6%`).
+
+Role application totals are now: Product Manager / Technical Program Manager 3,200; Marketing
+2,909; Sales Engineer / Delivery Manager 316; Unclassified 32. All role conversion rates are 0%
+until downstream evidence is linked. Company grouping is now case-insensitive and uses real
+activity dates, but its practical value remains limited: 1,321 canonical applications have an
+unknown company and several high-frequency names are ATS/domain extraction artifacts.
+
+### Monthly applications and calendar interviews
+
+The supplied Google Calendar ICS export was reviewed locally from 2024-07-01 through 2026-08-08
+with `calendar-interview-v1`. It contains 306 deterministic interview/screening event occurrences,
+13 ambiguous candidates left out of the total, four explicitly excluded non-job events, and no
+cancelled events in range. The review emitted counts only and did not import the ICS or copy event
+content into the repository or database.
+
+Completed-month changes compare with the previous complete month. August 2026 is month-to-date;
+its application and interview changes compare August 1–8 with July 1–8. Calendar counts represent
+interview rounds/events, not distinct applications or companies, so they cannot yet produce an
+application-to-interview conversion rate.
+
+| Month | Applications | Application MoM | Calendar interviews | Interview MoM |
+|---|---:|---:|---:|---:|
+| 2024-07 | 33 | +37.5% | 8 | — |
+| 2024-08 | 20 | -39.4% | 4 | -50.0% |
+| 2024-09 | 14 | -30.0% | 1 | -75.0% |
+| 2024-10 | 22 | +57.1% | 3 | +200.0% |
+| 2024-11 | 22 | 0.0% | 1 | -66.7% |
+| 2024-12 | 32 | +45.5% | 4 | +300.0% |
+| 2025-01 | 23 | -28.1% | 8 | +100.0% |
+| 2025-02 | 39 | +69.6% | 2 | -75.0% |
+| 2025-03 | 71 | +82.1% | 21 | +950.0% |
+| 2025-04 | 109 | +53.5% | 10 | -52.4% |
+| 2025-05 | 60 | -45.0% | 18 | +80.0% |
+| 2025-06 | 47 | -21.7% | 11 | -38.9% |
+| 2025-07 | 72 | +53.2% | 10 | -9.1% |
+| 2025-08 | 54 | -25.0% | 18 | +80.0% |
+| 2025-09 | 57 | +5.6% | 18 | 0.0% |
+| 2025-10 | 86 | +50.9% | 24 | +33.3% |
+| 2025-11 | 94 | +9.3% | 13 | -45.8% |
+| 2025-12 | 82 | -12.8% | 32 | +146.2% |
+| 2026-01 | 67 | -18.3% | 16 | -50.0% |
+| 2026-02 | 61 | -9.0% | 13 | -18.8% |
+| 2026-03 | 46 | -24.6% | 14 | +7.7% |
+| 2026-04 | 33 | -28.3% | 7 | -50.0% |
+| 2026-05 | 42 | +27.3% | 8 | +14.3% |
+| 2026-06 | 97 | +131.0% | 12 | +50.0% |
+| 2026-07 | 12 | -87.6% | 25 | +108.3% |
+| 2026-08 MTD | 0 | -100.0% | 5 | -16.7% |
+
+### Sprint verification
+
+| Check | Result |
+|---|---|
+| Full Pytest | Historical Sprint 12.2 result — 216 tests; superseded by the Sprint 12.3 closure result below |
+| Corrected analytics regressions | Pass — saved/new exclusion, date isolation, evidence deduplication, unlinked-evidence reporting, grouping, and period baseline |
+| Ruff | Pass |
+| Black check | Pass — 48 files unchanged |
+| MyPy configured scope | Pass — 48 source files |
+| Python and JavaScript syntax | Pass |
+| Git whitespace validation | Pass |
+| Read-only analytics API smoke | Pass — overview, timeline, roles, and companies returned HTTP 200 |
+| ICS calendar review | Pass — deterministic counts, timezone handling, deduplication, exclusions, and content-free output |
+| Runtime database protection | Pass — checksum unchanged; database ignored and untracked |
+
+### Recommended Sprint 13 correction
+
+Sprint 13 should improve evidence linkage and data quality without rewriting immutable source
+records:
+
+1. Build a reviewed, deterministic job-linking queue for the 15 response, 12 interview, and 24
+   rejection classification rows that are currently unlinked. Never auto-link ambiguous evidence.
+2. Add reversible company aliases/corrections separate from raw extracted company values, with a
+   review queue for `Unknown`, ATS/domain tokens, and truncated phrases.
+3. Backfill explicit application dates only from reviewable message evidence; keep unresolved
+   dates null.
+4. Add coverage and confidence indicators to role/company tables so small or poorly linked samples
+   cannot look authoritative.
+5. Re-run conversion and period analytics after reviewed linkage and publish the linked numerator,
+   eligible denominator, and unresolved-evidence count together.
+
+### Sprint 12.3 fast-release gate
+
+Sprint 12.3 is the final production-data correction pass for Version 1. It completes the three
+selected mailbox backlogs, proves immediate repeat safety, rebuilds the attributed snapshot,
+publishes linked monthly outcomes and conversion rates, and supplies one-command startup. Release
+evidence records provider checkpoints, final database counts and health, snapshot totals, and the
+full verification suite.
+
+Sprint 13 is intentionally one iteration rather than another infrastructure program. It consumes
+the completed evidence layer to review unlinked outcomes, improve deterministic company/job-role
+attribution, reconcile calendar rounds to applications only where explicit evidence exists, and
+add aggregate evidence drill-down. It must not replace deterministic evidence with an LLM or
+rewrite historical rows.
+
+### Sprint 12.3 live continuation result — 2026-08-21
+
+The approved Gmail and Hotmail continuation runs completed before the approved Yahoo continuation.
+Yahoo processed and accepted 1,000 messages from the `job` folder after the existing checkpoint,
+through UID `54425`, with zero failures, zero mailbox mutations, and 1,000 additive database
+writes. The immediate second-pass idempotency verification performed zero writes and confirmed
+unchanged file checksum and logical state. The post-run database is revision `20260808_0007`,
+SHA-256 `0184110df9db0632bd8ccc11bf31008332a6e9db25cfcbd66b3aeb88408b1736`, with `integrity_check`
+`ok` and no foreign-key violations.
+
+| Table | Verified count |
+|---|---:|
+| jobs | 8,228 |
+| email_imports | 13 |
+| imported_messages / email_classifications / imap_message_metadata | 7,384 each |
+| recruiters | 48 |
+| interview_events | 178 |
+| IMAP checkpoints | 3 |
+
+The attributable-dashboard snapshot was regenerated on 2026-08-21 once the operator-provided
+`JobSearchPlan.xlsx`, `Job Search Analytics.docx`, and `Solovat@gmail.com.ics` files were restored.
+It reports 4,247 combined unique applications and 313 calendar interview events through
+2026-08-21. On the same date, approved account-scoped Gmail MBOX imports added 535 Marketing
+messages from `soultanovr@gmail.com` and 17,301 PM messages from `solovat@gmail.com`, with zero
+import failures. Snapshot generation after those imports left the live runtime database checksum
+unchanged. Do not substitute partial email evidence for the plan denominator if a future rebuild
+lacks a source.
+
+### Sprint 12.3 closure verification — 2026-08-21
+
+The final LinkedIn submission-ledger reconciliation preserved email and calendar evidence while
+adding 352 verified legacy `source=linkedin`, `status=applied` rows. The resulting aggregate-only
+snapshot reports 4,434 combined unique applications through 2026-08-21. July 2026 contains 189
+and August 2026 contains 162 direct LinkedIn submissions; 30 / 60 / 90-day totals are 230 / 398 /
+535. Email confirmations remain separately visible and are never added to the ledger for the same
+month.
+
+| Check | Final result |
+|---|---|
+| Full Pytest | Pass — 227 tests |
+| Targeted incident + analytics regressions | Pass — 16 tests |
+| Ruff / Black / MyPy | Pass in configured scope |
+| Python / JavaScript syntax / Git whitespace | Pass |
+| Runtime database | `integrity_check: ok`; `foreign_key_check: []`; ignored and untracked |
+| Runtime database checksum after the approved ledger reconciliation | `56afa240e612d672e2aa6e01e100f8ed0c170685aff5ba27f159c867348758c7` |
+
+The old Yahoo incident was not reintroduced in order to test it. Its regression fixture now
+constructs the historical 94/1/5 persisted state explicitly, while the production importer
+continues to safely accept the corrected 100-message batch.
+
+## Authoritative Sprint 12.2 attribution correction — 2026-08-08
+
+This section supersedes the confirmation-derived application and rolling-window figures earlier
+in this document. Those figures represented incomplete stored confirmation evidence, not the
+user's outbound job-search activity.
+
+| Reviewed source | Coverage/result |
+|---|---|
+| Application plan | 3,155 explicitly recorded submissions from 2025-02-03 through 2025-10-26; 20.5 per active day; June and July 2025 absent |
+| Funnel analysis | 4,618 applications; 314 hiring-manager/team opportunities (6.8%); 16 finals (0.35%); 0 offers |
+| Calendar export | 306 deterministic interview/screen events from July 2024 through 2026-08-08; 229 company-attributed and 76 role-attributed |
+| Synchronized email sample | 297 messages: 100 Gmail, 100 Hotmail, and 97 Yahoo; 98 linked to jobs; 215 company-attributed and 82 unresolved; this is bounded evidence, not the application denominator |
+
+Account attribution follows the user's explicit mapping: Yahoo is Product Management/TPM;
+Hotmail and `soultanovr` Gmail are Marketing; `ibuildanapp` Gmail is Operations/Sales Engineering.
+Email company and role aggregates use linked jobs or deterministic message evidence and disclose
+unresolved coverage. Calendar company/role/stage attribution remains aggregate-only and retains
+an `Unattributed` bucket rather than fabricating a match.
+
+The dashboard no longer publishes current 30/60/90-day application totals because the supplied
+outbound plan does not cover those windows. Missing activity is displayed as unavailable, not
+zero. No source document, calendar event, raw message content, or runtime database row is written
+by the snapshot builder.

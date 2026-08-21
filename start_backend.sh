@@ -1,9 +1,19 @@
 #!/bin/bash
-set -e
-cd "$(dirname "$0")/backend"
-if [ ! -d .venv ]; then
-  python3 -m venv .venv
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+PYTHON="${PYTHON:-$ROOT/backend/.venv/bin/python}"
+
+if [ ! -x "$PYTHON" ]; then
+  echo "Missing backend environment: $PYTHON" >&2
+  echo "Create it and install backend/requirements.txt before starting." >&2
+  exit 1
 fi
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --host 127.0.0.1 --port 8002
+
+export PYTHONPATH="${PYTHONPATH:-$ROOT/backend}"
+export JOBS_DB_PATH="${JOBS_DB_PATH:-$ROOT/data/jobs.db}"
+
+exec "$PYTHON" -m uvicorn backend.main:app \
+  --host "${HOST:-127.0.0.1}" \
+  --port "${PORT:-8000}" \
+  "$@"

@@ -156,23 +156,37 @@ def _counts(database: Path) -> dict[str, int]:
         }
 
 
-def test_sanitized_fixture_reproduces_94_1_5_incident(
-    isolated_app: tuple[Any, Path], monkeypatch: pytest.MonkeyPatch
-) -> None:
+def _create_historical_partial_incident(module: Any) -> tuple[dict[str, object], dict[str, object]]:
+    """Construct the recorded 94/1/5 state without reintroducing its old import bug.
+
+    The production importer now resolves all 100 messages safely.  Recovery tests instead
+    need a deterministic representation of the historical partial database: 94 entries in
+    the first committed import, followed by the late accepted entry in a second import.
+    """
+    messages = _incident_messages()
+    fixture = json.loads(FIXTURE.read_text())
+    missing = set(fixture["unresolved_uids"])
+    late_uid = int(fixture["late_accepted_uid"])
+    first_batch = [message for message in messages if message.uid not in missing | {late_uid}]
+    late_batch = [message for message in messages if message.uid == late_uid]
+
+    first = module.import_yahoo_imap_messages(first_batch)
+    second = module.import_yahoo_imap_messages(late_batch)
+    return first, second
+
+
+def test_sanitized_fixture_reconstructs_94_1_5_incident(isolated_app: tuple[Any, Path]) -> None:
     _, database = isolated_app
     module: Any = sys.modules["backend.main"]
     _seed_cross_account_jobs(module)
-    messages = _incident_messages()
-    monkeypatch.setattr(module, "_yahoo_cross_account_conflicts", lambda *args: set())
 
-    first = module.import_yahoo_imap_messages(messages)
-    second = module.import_yahoo_imap_messages(messages)
+    first, second = _create_historical_partial_incident(module)
 
     assert first["accepted_count"] == 94
-    assert first["failure_count"] == 6
+    assert first["failure_count"] == 0
     assert second["accepted_count"] == 1
-    assert second["skipped_count"] == 94
-    assert second["failure_count"] == 5
+    assert second["skipped_count"] == 0
+    assert second["failure_count"] == 0
     counts = _counts(database)
     assert counts["jobs"] == 25
     assert counts["email_imports"] == 2
@@ -216,15 +230,12 @@ def test_corrected_import_is_order_independent_and_verification_is_read_only(
 
 
 def test_partial_incident_analysis_reports_five_missing_and_late_acceptance(
-    isolated_app: tuple[Any, Path], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    isolated_app: tuple[Any, Path], tmp_path: Path
 ) -> None:
     _, database = isolated_app
     module: Any = sys.modules["backend.main"]
     _seed_cross_account_jobs(module)
-    messages = _incident_messages()
-    monkeypatch.setattr(module, "_yahoo_cross_account_conflicts", lambda *args: set())
-    module.import_yahoo_imap_messages(messages)
-    module.import_yahoo_imap_messages(messages)
+    _create_historical_partial_incident(module)
     fixture = json.loads(FIXTURE.read_text())
     dry_run = tmp_path / "dry-run.json"
     dry_run.write_text(
@@ -271,13 +282,7 @@ def test_recovery_scope_and_disposable_rollback_preserve_baseline(
     _, database = isolated_app
     module: Any = sys.modules["backend.main"]
     _seed_cross_account_jobs(module)
-    original = module._yahoo_cross_account_conflicts
-    module._yahoo_cross_account_conflicts = lambda *args: set()
-    try:
-        module.import_yahoo_imap_messages(_incident_messages())
-        module.import_yahoo_imap_messages(_incident_messages())
-    finally:
-        module._yahoo_cross_account_conflicts = original
+    _create_historical_partial_incident(module)
     copy = tmp_path / "incident-copy.db"
     shutil.copy2(database, copy)
     from backend.app.services import yahoo_incident
@@ -304,17 +309,13 @@ def test_transport_identity_and_classifier_version_are_stable() -> None:
 
 
 def test_controlled_missing_recovery_accepts_five_without_new_jobs(
-    isolated_app: tuple[Any, Path], monkeypatch: pytest.MonkeyPatch
+    isolated_app: tuple[Any, Path]
 ) -> None:
     _, database = isolated_app
     module: Any = sys.modules["backend.main"]
-    original_planner = module._yahoo_cross_account_conflicts
     _seed_cross_account_jobs(module)
     messages = _incident_messages()
-    monkeypatch.setattr(module, "_yahoo_cross_account_conflicts", lambda *args: set())
-    module.import_yahoo_imap_messages(messages)
-    module.import_yahoo_imap_messages(messages)
-    monkeypatch.setattr(module, "_yahoo_cross_account_conflicts", original_planner)
+    _create_historical_partial_incident(module)
     missing = [
         message for message in messages if message.uid in {53314, 53336, 53355, 53375, 53386}
     ]
@@ -330,17 +331,13 @@ def test_controlled_missing_recovery_accepts_five_without_new_jobs(
 
 
 def test_controlled_recovery_records_explicit_server_exclusions(
-    isolated_app: tuple[Any, Path], monkeypatch: pytest.MonkeyPatch
+    isolated_app: tuple[Any, Path]
 ) -> None:
     _, database = isolated_app
     module: Any = sys.modules["backend.main"]
-    original_planner = module._yahoo_cross_account_conflicts
     _seed_cross_account_jobs(module)
     messages = _incident_messages()
-    monkeypatch.setattr(module, "_yahoo_cross_account_conflicts", lambda *args: set())
-    module.import_yahoo_imap_messages(messages)
-    module.import_yahoo_imap_messages(messages)
-    monkeypatch.setattr(module, "_yahoo_cross_account_conflicts", original_planner)
+    _create_historical_partial_incident(module)
     unavailable = (53314, 53336, 53355)
     available = [
         message for message in messages if message.uid in set(INCIDENT_UIDS) - set(unavailable)
@@ -365,14 +362,7 @@ def test_recovery_gate_is_offline_and_checksum_bound(
     _, database = isolated_app
     module: Any = sys.modules["backend.main"]
     _seed_cross_account_jobs(module)
-    messages = _incident_messages()
-    original = module._yahoo_cross_account_conflicts
-    module._yahoo_cross_account_conflicts = lambda *args: set()
-    try:
-        module.import_yahoo_imap_messages(messages)
-        module.import_yahoo_imap_messages(messages)
-    finally:
-        module._yahoo_cross_account_conflicts = original
+    _create_historical_partial_incident(module)
     backup = tmp_path / "incident.sqlite3"
     shutil.copy2(database, backup)
     metadata = tmp_path / "incident.metadata.json"

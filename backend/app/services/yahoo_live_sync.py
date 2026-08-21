@@ -17,6 +17,7 @@ from backend.app.services.yahoo_imap import (
     YahooImapSettings,
     create_verified_tls_context,
 )
+from backend.app.services.yahoo_incident import database_digests
 
 EXPECTED_LIVE_DATABASE = (Path(__file__).resolve().parents[3] / "data" / "jobs.db").resolve()
 EXPECTED_LIVE_CHECKSUM = "088e96d7d518815ef5b1de757a6e7d6aaff9695b9d4706f8d25602952c4a91b0"
@@ -103,6 +104,40 @@ def _validate_backup(metadata_path: Path) -> dict[str, Any]:
     return {"path": str(backup), "checksum_sha256": checksum, "revision": "20260712_0005"}
 
 
+def _validate_current_backup(
+    metadata_path: Path, *, live_database: Path, expected_checksum: str
+) -> dict[str, Any]:
+    metadata = _read_json(metadata_path, "Backup metadata")
+    backup = Path(str(metadata.get("path", ""))).expanduser().resolve()
+    if not backup.is_file():
+        raise ValueError("Backup metadata does not reference a readable backup")
+    checksum = sha256_file(backup)
+    if checksum != metadata.get("checksum_sha256"):
+        raise ValueError("Backup checksum does not match its metadata")
+    if metadata.get("alembic_revision") != EXPECTED_REVISION:
+        raise ValueError(f"Backup must be at revision {EXPECTED_REVISION}")
+    if metadata.get("integrity_check") != ["ok"] or metadata.get("foreign_key_violations"):
+        raise ValueError("Backup metadata does not show a clean database")
+    if sha256_file(live_database) != expected_checksum:
+        raise ValueError("Live source checksum changed after approval")
+    with sqlite3.connect(f"{backup.as_uri()}?mode=ro", uri=True) as connection:
+        revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()
+        if revision != (EXPECTED_REVISION,):
+            raise ValueError(f"Backup database must be at revision {EXPECTED_REVISION}")
+        if connection.execute("PRAGMA integrity_check").fetchone() != ("ok",):
+            raise ValueError("Backup integrity validation failed")
+        if list(connection.execute("PRAGMA foreign_key_check")):
+            raise ValueError("Backup foreign-key validation failed")
+    if database_digests(backup) != database_digests(live_database):
+        raise ValueError("Backup logical table digests do not match the approved live state")
+    return {
+        "path": str(backup),
+        "checksum_sha256": checksum,
+        "source_checksum_sha256": expected_checksum,
+        "revision": EXPECTED_REVISION,
+    }
+
+
 def _validate_dry_run(path: Path) -> dict[str, Any]:
     evidence = _read_json(path, "Dry-run evidence")
     expected = {
@@ -124,6 +159,39 @@ def _validate_dry_run(path: Path) -> dict[str, Any]:
     if mismatches:
         raise ValueError(f"Dry-run evidence failed approved fields: {', '.join(mismatches)}")
     return {key: evidence[key] for key in expected}
+
+
+def _validate_continuation_evidence(
+    path: Path,
+    *,
+    folder: str,
+    since_date: date,
+    expected_start_uid: int,
+    expected_uidvalidity: str,
+) -> dict[str, Any]:
+    evidence = _read_json(path, "Continuation evidence")
+    expected = {
+        "folder": folder,
+        "since_date": since_date.isoformat(),
+        "search_complete": True,
+        "database_writes": 0,
+        "mailbox_mutations": 0,
+        "uidvalidity": expected_uidvalidity,
+    }
+    mismatches = [key for key, value in expected.items() if evidence.get(key) != value]
+    if mismatches:
+        raise ValueError(f"Continuation evidence failed required fields: {', '.join(mismatches)}")
+    first_uid = evidence.get("first_uid")
+    if first_uid is not None and int(first_uid) < expected_start_uid:
+        raise ValueError("Continuation evidence starts before the stored checkpoint")
+    if int(evidence.get("failure_count", 0)) != 0:
+        raise ValueError("Continuation evidence contains failures")
+    return {
+        **expected,
+        "first_uid": int(first_uid) if first_uid is not None else None,
+        "last_uid": evidence.get("last_uid"),
+        "total_matched_uid_count": int(evidence.get("total_matched_uid_count", 0)),
+    }
 
 
 def _validate_offline_tls(settings: YahooImapSettings) -> dict[str, Any]:
@@ -171,6 +239,51 @@ def preflight_live_sync(
     }
 
 
+def preflight_continuation_sync(
+    database: Path,
+    *,
+    folder: str,
+    since_date: date,
+    backup_metadata: Path,
+    count_or_dry_run_evidence: Path,
+    settings: YahooImapSettings,
+    expected_checksum: str,
+    expected_start_uid: int,
+    expected_uidvalidity: str,
+    expected_live_path: Path = EXPECTED_LIVE_DATABASE,
+) -> dict[str, Any]:
+    """Validate a checkpoint continuation without connecting or writing."""
+    resolved = database.expanduser().resolve()
+    expected_path = expected_live_path.expanduser().resolve()
+    if resolved != expected_path:
+        raise ValueError(f"Live database path must resolve exactly to {expected_path}")
+    if folder != EXPECTED_FOLDER or since_date != EXPECTED_SINCE_DATE:
+        raise ValueError("Yahoo continuation requires the approved folder and since-date scope")
+    return {
+        "mode": "preflight-live-continuation",
+        "database": str(resolved),
+        "folder": folder,
+        "since_date": since_date.isoformat(),
+        "database_evidence": _validate_database(resolved, expected_checksum),
+        "backup_evidence": _validate_current_backup(
+            backup_metadata,
+            live_database=resolved,
+            expected_checksum=expected_checksum,
+        ),
+        "continuation_evidence": _validate_continuation_evidence(
+            count_or_dry_run_evidence,
+            folder=folder,
+            since_date=since_date,
+            expected_start_uid=expected_start_uid,
+            expected_uidvalidity=expected_uidvalidity,
+        ),
+        "tls": _validate_offline_tls(settings),
+        "network_connections": 0,
+        "database_writes": 0,
+        "mailbox_mutations": 0,
+    }
+
+
 def authorize_first_live_batch(
     *, allow_live: bool, confirmation: str | None, start_uid: int, limit: int | None
 ) -> None:
@@ -180,6 +293,22 @@ def authorize_first_live_batch(
         raise ValueError("Live synchronization confirmation token is invalid")
     if start_uid != FIRST_LIVE_UID or limit != FIRST_LIVE_LIMIT:
         raise ValueError("First live batch requires --start-uid 53290 --limit 100")
+
+
+def authorize_continuation_batch(
+    *,
+    allow_live: bool,
+    confirmation: str | None,
+    start_uid: int,
+    checkpoint: ImapCheckpoint,
+) -> None:
+    if not allow_live:
+        raise ValueError("Live synchronization requires --allow-live-database")
+    if confirmation != LIVE_CONFIRMATION_TOKEN:
+        raise ValueError("Live synchronization confirmation token is invalid")
+    expected_start = checkpoint.last_successful_uid + 1
+    if start_uid != expected_start:
+        raise ValueError(f"Yahoo continuation must start at checkpoint UID {expected_start}")
 
 
 def database_state(path: Path) -> dict[str, Any]:
