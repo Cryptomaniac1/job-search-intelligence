@@ -77,6 +77,38 @@ def test_unlinked_evidence_api_is_read_only(isolated_app: tuple[TestClient, Path
     assert response.json() == {"total_unlinked": 0, "returned": 0, "items": []}
 
 
+def test_unlinked_evidence_tolerates_legacy_list_reason_json(tmp_path: Path) -> None:
+    """Historical classifications may store their matched signals as a JSON list."""
+    database = tmp_path / "review.db"
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE email_classifications (
+                message_identity TEXT, job_id INTEGER, classification TEXT, confidence REAL,
+                classifier_version TEXT, reason_json TEXT, created_at TEXT
+            );
+            CREATE TABLE imported_messages (
+                stable_message_identity TEXT, provider TEXT, source_import_id INTEGER,
+                imported_at TEXT
+            );
+            CREATE TABLE email_imports (id INTEGER, mailbox_name TEXT);
+            CREATE TABLE imap_message_metadata (
+                message_identity TEXT, provider TEXT, account_namespace TEXT,
+                imap_internal_date TEXT, received_at TEXT
+            );
+            INSERT INTO email_classifications VALUES
+                ('v1:legacy', NULL, 'RECRUITER_REPLY', 0.9, 'v1',
+                 '["subject=reply"]', '2026-08-23T00:00:00');
+            """
+        )
+
+    result = list_unlinked_evidence(database)
+
+    assert result["total_unlinked"] == 1
+    assert result["items"][0]["message_identity"] == "v1:legacy"
+    assert result["items"][0]["matched_signals"] == []
+
+
 def test_reviewed_link_is_additive_and_removes_only_that_item_from_queue(tmp_path: Path) -> None:
     database = tmp_path / "review.db"
     with sqlite3.connect(database) as connection:
