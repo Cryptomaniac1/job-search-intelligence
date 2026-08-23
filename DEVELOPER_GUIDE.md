@@ -5,9 +5,8 @@
 Python 3.12 is the supported version. From the repository root:
 
 ```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements-dev.txt
+python3.12 -m venv backend/.venv
+backend/.venv/bin/python -m pip install -r requirements-dev.txt
 ```
 
 The checked-in startup wrapper remains compatible:
@@ -16,23 +15,24 @@ The checked-in startup wrapper remains compatible:
 ./start_backend.sh
 ```
 
-It starts the existing application as `main:app` from the `backend` directory on
-`http://127.0.0.1:8002`. The import path `backend.main:app` also remains supported when running
-from the repository root:
+It starts the application on `http://127.0.0.1:8000` through the repository virtual environment
+and sets the required backend import path. This avoids stale global `uvicorn` launchers. The import
+path `backend.main:app` also remains supported when running directly from the repository root:
 
 ```bash
-uvicorn backend.main:app --host 127.0.0.1 --port 8002
+PYTHONPATH="$PWD/backend" JOBS_DB_PATH="$PWD/data/jobs.db" \
+  backend/.venv/bin/python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
 
 By default, the application uses `data/jobs.db`. Resolution priority is `JOBS_DB_PATH`, then
 `DATABASE_PATH`, then the repository default. Relative overrides resolve from the repository root.
-The existing startup commands require no changes.
+The wrapper accepts `HOST` and `PORT` environment overrides.
 
 Examples:
 
 ```bash
 JOBS_DB_PATH=/absolute/path/to/jobs.db ./start_backend.sh
-DATABASE_PATH=/absolute/path/to/jobs.db uvicorn backend.main:app --host 127.0.0.1 --port 8002
+DATABASE_PATH=/absolute/path/to/jobs.db PORT=8000 ./start_backend.sh
 ```
 
 If the resolved database is missing, startup creates its parent directory and initializes a new
@@ -66,6 +66,21 @@ migrate, stamp, or write to `data/jobs.db` or `backend/jobs.db.migrated`.
 
 Before and after database-related work, record the historical database checksum, schema, and row
 counts with read-only SQLite access. A changed checksum requires investigation before delivery.
+
+## Calendar interview review
+
+Review a local Google Calendar ICS export without importing it or emitting event content:
+
+```bash
+backend/.venv/bin/python scripts/analyze_calendar_interviews.py \
+  /absolute/path/to/calendar.ics \
+  --from-date 2024-07-01 \
+  --through-date 2026-08-08
+```
+
+The command prints monthly counts plus ambiguous/excluded totals. It never prints summaries,
+descriptions, attendees, locations, or event IDs. `--output-json` may write the same content-free
+result outside the repository for review.
 
 ## Alembic
 
@@ -475,7 +490,43 @@ temporary database during feature review:
 ```bash
 export JOBS_DB_PATH="$(mktemp -d)/version1.db"
 backend/.venv/bin/python -m alembic upgrade head
-backend/.venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8000
+backend/.venv/bin/python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+```
+
+Use `backend/.venv/bin/python -m uvicorn`, rather than the generated
+`backend/.venv/bin/uvicorn` launcher, when this checkout or virtual environment has moved. The
+launcher embeds its original absolute interpreter path and can otherwise load packages from an
+obsolete checkout.
+
+Build the local attributed analytics snapshot from operator-supplied sources with:
+
+```bash
+backend/.venv/bin/python scripts/build_attributed_analytics.py \
+  --application-plan /absolute/path/JobSearchPlan.xlsx \
+  --funnel-analysis "/absolute/path/Job Search Analytics.docx" \
+  --calendar /absolute/path/Solovat@gmail.com.ics \
+  --database data/jobs.db \
+  --through-date 2026-08-08 \
+  --output data/attributed_analytics.json
+```
+
+`data/attributed_analytics.json` is ignored and contains aggregates and source checksums only.
+The source XLSX, DOCX, ICS, mailbox content, and credentials must remain outside the repository.
+The builder is read-only with respect to `data/jobs.db`.
+
+When a legacy LinkedIn scanner database is available, first reconcile its `source=linkedin`,
+`status=applied` records with the preservation-first helper. Build the snapshot from the runtime
+database afterward, so the reconciled ledger—not a stale external copy—drives its recorded
+months. If an external ledger is explicitly supplied, the builder selects it only when it contains
+more dated Applied evidence than the runtime ledger. The ledger's original scan time is recorded
+as the legacy Applied date. Its
+partial first calendar month remains email- or plan-covered; later ledger months are direct
+submission coverage.
+
+```bash
+backend/.venv/bin/python scripts/reconcile_linkedin_submissions.py \
+  --source-database /absolute/path/legacy-linkedin/jobs.db \
+  --database data/jobs.db
 ```
 
 The candidate adds local applications, companies and timelines, resumes, job descriptions,

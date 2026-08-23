@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import csv
+import html
 import io
 import json
 import mailbox
+import os
 import re
 import sqlite3
 import tempfile
@@ -34,6 +36,15 @@ try:
         EmailType,
         classify_email,
     )
+    from backend.app.services.analytics import (
+        analytics_companies as corrected_analytics_companies,
+        analytics_overview as corrected_analytics_overview,
+        analytics_roles as corrected_analytics_roles,
+        analytics_timeline as corrected_analytics_timeline,
+    )
+    from backend.app.services.attributed_analytics import load_attributed_snapshot
+    from backend.app.services.application_attribution import infer_application_role_family
+    from backend.app.services.evidence_review import list_unlinked_evidence
     from backend.app.services.import_identity import stable_message_identity
     from backend.app.services.historical_interview_import import (
         HistoricalInterviewCandidate,
@@ -89,6 +100,15 @@ try:
 except ModuleNotFoundError:  # Supports the existing `cd backend && uvicorn main:app` command.
     from app.database.paths import initialize_database_if_missing, resolve_database_path
     from app.services.email_classification import ClassificationResult, EmailType, classify_email
+    from app.services.analytics import (
+        analytics_companies as corrected_analytics_companies,
+        analytics_overview as corrected_analytics_overview,
+        analytics_roles as corrected_analytics_roles,
+        analytics_timeline as corrected_analytics_timeline,
+    )
+    from app.services.attributed_analytics import load_attributed_snapshot
+    from app.services.application_attribution import infer_application_role_family
+    from app.services.evidence_review import list_unlinked_evidence
     from app.services.import_identity import stable_message_identity
     from app.services.historical_interview_import import (
         HistoricalInterviewCandidate,
@@ -142,6 +162,9 @@ except ModuleNotFoundError:  # Supports the existing `cd backend && uvicorn main
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = resolve_database_path()
 initialize_database_if_missing(DB_PATH)
+ATTRIBUTED_ANALYTICS_PATH = Path(
+    os.environ.get("ATTRIBUTED_ANALYTICS_PATH", DB_PATH.parent / "attributed_analytics.json")
+).expanduser()
 
 engine = create_engine(
     f"sqlite:///{DB_PATH}",
@@ -460,6 +483,29 @@ ACCOUNT_MAP = {
     },
 }
 
+ACCOUNT_NAMESPACE_MAP = {
+    ("gmail", "solovat@gmail.com"): {
+        "role_family": "Product Manager / Technical Program Manager",
+        "resume_family": "Product / TPM",
+    },
+    ("gmail", "soultanovr@gmail.com"): {
+        "role_family": "Marketing",
+        "resume_family": "Growth / Lifecycle / Product Marketing",
+    },
+    ("gmail", "ibuildanapp@gmail.com"): {
+        "role_family": "Operations / Sales Engineering",
+        "resume_family": "Operations / Sales Engineering",
+    },
+}
+
+
+def account_profile(mailbox_name: str, account_namespace: str = "") -> dict[str, str]:
+    """Return the explicit account profile without collapsing same-provider mailboxes."""
+    normalized_account = account_namespace.strip().casefold()
+    return ACCOUNT_NAMESPACE_MAP.get(
+        (mailbox_name, normalized_account), ACCOUNT_MAP[mailbox_name]
+    )
+
 ATS_DOMAINS = {
     "greenhouse.io": "Greenhouse",
     "lever.co": "Lever",
@@ -483,8 +529,12 @@ CONFIRMATION_PATTERNS = [
 ]
 
 TITLE_PATTERNS = [
-    re.compile(r"(?:position|role|job)\s*[:\-]\s*(.{3,180})", re.I),
-    re.compile(r"application (?:for|to)\s+(.{3,180})", re.I),
+    re.compile(r"(?:position|role|job)\s*[:\-]\s*([^\n]{3,180})", re.I),
+    re.compile(
+        r"(?:for|to)\s+(?:the\s+)?(?:position|role|job)(?:\s+of)?\s+([^\n]{3,180})",
+        re.I,
+    ),
+    re.compile(r"application\s+(?:for|to)\s+([^\n]{3,180})", re.I),
 ]
 
 def decode_mime(value: str | None) -> str:
@@ -520,7 +570,7 @@ def message_body(message: Message) -> str:
         except Exception:
             pass
 
-    text = "\n".join(parts)
+    text = html.unescape("\n".join(parts))
     text = re.sub(r"<[^>]+>", " ", text)
     return re.sub(r"\s+", " ", text).strip()
 
@@ -573,6 +623,26 @@ def normalize_title(value: str) -> str:
     value = re.sub(r"\b(sr\.?|senior|lead|principal|staff|manager|director|head of)\b", "", value, flags=re.I)
     return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
 
+def clean_extracted_title(value: str) -> str:
+    """Keep a short role phrase; never turn surrounding email prose into a title."""
+    value = html.unescape(value)
+    value = re.sub(r"\s+", " ", value).strip(" .:-")
+    value = re.sub(r"^(?:the\s+)?(?:position|role|job)(?:\s+of)?\s+", "", value, flags=re.I)
+    boundary = re.search(
+        r"(?:\.|\s+(?:and|at|with|where|while|if|we|our|your|you)\b|\s+-\s+(?:we|our)\b)",
+        value,
+        re.I,
+    )
+    if boundary:
+        value = value[: boundary.start()]
+    value = value.strip(" ,.:;|–—-()")
+    if len(value) > 100 or len(value.split()) > 12:
+        return ""
+    if value.casefold() in {"application", "application confirmation", "your application"}:
+        return ""
+    return value
+
+
 def extract_company_and_title(subject: str, body: str, sender: str) -> tuple[str, str]:
     combined = f"{subject} {body}"
 
@@ -580,11 +650,7 @@ def extract_company_and_title(subject: str, body: str, sender: str) -> tuple[str
     for pattern in TITLE_PATTERNS:
         match = pattern.search(combined)
         if match:
-            title = match.group(1)
-            title = re.split(r"[|•\n\r]", title)[0]
-            title = re.sub(r"\s{2,}", " ", title).strip(" .:-")
-            if len(title) > 180:
-                title = ""
+            title = clean_extracted_title(match.group(1))
             if title:
                 break
 
@@ -688,15 +754,18 @@ def match_or_create_application(
     ats_platform: str,
     message_id: str,
     stable_identity: str,
+    account_namespace: str = "",
+    inferred_role_family: str = "",
 ) -> tuple[Job, float, bool]:
-    account = ACCOUNT_MAP[mailbox_name]
+    account_key = account_namespace.strip().casefold() or mailbox_name
+    account = account_profile(mailbox_name, account_key)
     jobs = list(session.scalars(select(Job)))
 
     best_job: Optional[Job] = None
     best_score = 0.0
 
     for job in jobs:
-        if job.email_account and job.email_account != mailbox_name:
+        if job.email_account and job.email_account != account_key:
             continue
         score = 0.0
         if job_id and job.linkedin_job_id == job_id:
@@ -737,11 +806,34 @@ def match_or_create_application(
             best_score = score
             best_job = job
 
-    matched = bool(best_job and best_score >= 45)
+    role_conflict = bool(
+        best_job
+        and inferred_role_family
+        and best_job.role_family
+        and best_job.role_family != inferred_role_family
+        and not job_id
+        and not requisition_id
+    )
+    matched = bool(best_job and best_score >= 45 and not role_conflict)
 
     created = not matched
     if created:
-        synthetic_id = job_id or f"email-{mailbox_name}-{stable_identity.removeprefix('v1:')[:32]}"
+        identifier_owner = (
+            session.scalar(select(Job).where(Job.linkedin_job_id == job_id)) if job_id else None
+        )
+        reusable_identifier = bool(
+            job_id
+            and (
+                identifier_owner is None
+                or not identifier_owner.email_account
+                or identifier_owner.email_account == account_key
+            )
+        )
+        synthetic_id = (
+            job_id
+            if reusable_identifier
+            else f"email-{account_key}-{stable_identity.removeprefix('v1:')[:32]}"
+        )
         best_job = Job(
             linkedin_job_id=synthetic_id,
             title=title or "Application confirmation",
@@ -756,9 +848,9 @@ def match_or_create_application(
         session.add(best_job)
 
     if not best_job.email_account:
-        best_job.email_account = mailbox_name
+        best_job.email_account = account_key
     if not best_job.role_family:
-        best_job.role_family = account["role_family"]
+        best_job.role_family = inferred_role_family or account["role_family"]
     if not best_job.resume_family:
         best_job.resume_family = account["resume_family"]
     if applied_at and best_job.applied_at is None:
@@ -1868,11 +1960,14 @@ def delete_job(job_id: int):
 @app.post("/imports/mbox")
 async def import_mbox(
     mailbox_name: str = Form(...),
+    account_namespace: str = Form(""),
     file: UploadFile = File(...),
 ):
     mailbox_name = mailbox_name.lower().strip()
     if mailbox_name not in {"hotmail", "gmail"}:
         raise HTTPException(400, "mailbox_name must be hotmail or gmail")
+    account_namespace = account_namespace.strip().casefold()
+    profile = account_profile(mailbox_name, account_namespace)
 
     suffix = Path(file.filename or "upload.mbox").suffix or ".mbox"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
@@ -1916,7 +2011,7 @@ async def import_mbox(
                 confirmations_found += int(is_application)
 
                 identity = stable_message_identity(
-                    provider=mailbox_name,
+                    provider=f"{mailbox_name}:{account_namespace or mailbox_name}",
                     message_id=message_id,
                     subject=subject,
                     sender=sender,
@@ -1961,6 +2056,10 @@ async def import_mbox(
                             ats_platform=ats_platform,
                             message_id=message_id,
                             stable_identity=identity,
+                            account_namespace=account_namespace,
+                            inferred_role_family=(
+                                infer_application_role_family(f"{subject}\n{body}") or ""
+                            ),
                         )
                     recruiter_evidence = extract_recruiter(
                         classification=classification.classification.value,
@@ -2035,7 +2134,7 @@ async def import_mbox(
                             "title": title,
                             "applied_at": applied_at.isoformat() if applied_at else None,
                             "mailbox": mailbox_name,
-                            "role_family": ACCOUNT_MAP[mailbox_name]["role_family"],
+                            "role_family": profile["role_family"],
                             "matched": matched,
                             "confidence": round(score, 1),
                             "matched_job_id": job.id,
@@ -2052,8 +2151,9 @@ async def import_mbox(
 
         return {
             "mailbox_name": mailbox_name,
-            "role_family": ACCOUNT_MAP[mailbox_name]["role_family"],
-            "resume_family": ACCOUNT_MAP[mailbox_name]["resume_family"],
+            "account_namespace": account_namespace or mailbox_name,
+            "role_family": profile["role_family"],
+            "resume_family": profile["resume_family"],
             "total_messages": total_messages,
             "confirmations_found": confirmations_found,
             "matched_jobs": matched_jobs,
@@ -2671,86 +2771,27 @@ def dashboard():
 
 @app.get('/analytics/overview')
 def analytics_overview():
-    with Session(engine) as session:
-        jobs = list(session.scalars(select(Job)))
-    now = datetime.utcnow()
-    last30 = now.timestamp() - 30*86400
-    def is_recent(j):
-        dt = j.applied_at or j.first_seen_at
-        return bool(dt and dt.timestamp() >= last30)
-    def stage_count(items, names):
-        return sum(1 for j in items if (j.status or '').lower() in names)
-    recent = [j for j in jobs if is_recent(j)]
-    total = len(jobs)
-    return {
-        'all_time': {
-            'applications': total,
-            'recruiter_replies': stage_count(jobs, {'recruiter','interview','offer'}),
-            'interviews': stage_count(jobs, {'interview','offer'}),
-            'offers': stage_count(jobs, {'offer'}),
-            'rejections': stage_count(jobs, {'rejected'}),
-        },
-        'last_30_days': {
-            'applications': len(recent),
-            'recruiter_replies': stage_count(recent, {'recruiter','interview','offer'}),
-            'interviews': stage_count(recent, {'interview','offer'}),
-            'offers': stage_count(recent, {'offer'}),
-            'rejections': stage_count(recent, {'rejected'}),
-        }
-    }
+    return corrected_analytics_overview(DB_PATH)
 
 @app.get('/analytics/timeline')
 def analytics_timeline():
-    with Session(engine) as session:
-        jobs = list(session.scalars(select(Job)))
-    buckets = {}
-    for j in jobs:
-        dt = j.applied_at or j.first_seen_at
-        if not dt: continue
-        key = dt.strftime('%Y-%m')
-        b = buckets.setdefault(key, {'period': key, 'applications':0, 'recruiter_replies':0, 'interviews':0, 'offers':0})
-        b['applications'] += 1
-        s = (j.status or '').lower()
-        if s in {'recruiter','interview','offer'}: b['recruiter_replies'] += 1
-        if s in {'interview','offer'}: b['interviews'] += 1
-        if s == 'offer': b['offers'] += 1
-    return [buckets[k] for k in sorted(buckets)]
+    return corrected_analytics_timeline(DB_PATH)
 
 @app.get('/analytics/roles')
 def analytics_roles():
-    with Session(engine) as session:
-        jobs = list(session.scalars(select(Job)))
-    groups = {}
-    for j in jobs:
-        key = j.role_family or 'Unclassified'
-        g = groups.setdefault(key, {'role_family':key,'applications':0,'recruiter_replies':0,'interviews':0,'offers':0})
-        g['applications'] += 1
-        s=(j.status or '').lower()
-        if s in {'recruiter','interview','offer'}: g['recruiter_replies'] += 1
-        if s in {'interview','offer'}: g['interviews'] += 1
-        if s=='offer': g['offers'] += 1
-    out=[]
-    for g in groups.values():
-        a=max(g['applications'],1)
-        g['reply_rate']=round(g['recruiter_replies']/a*100,1)
-        g['interview_rate']=round(g['interviews']/a*100,1)
-        g['offer_rate']=round(g['offers']/a*100,2)
-        out.append(g)
-    return sorted(out,key=lambda x:x['applications'],reverse=True)
+    return corrected_analytics_roles(DB_PATH)
 
 @app.get('/analytics/companies')
 def analytics_companies(limit:int=50):
-    with Session(engine) as session:
-        jobs = list(session.scalars(select(Job)))
-    groups={}
-    for j in jobs:
-        key=(j.company or 'Unknown').strip()
-        g=groups.setdefault(key,{'company':key,'applications':0,'recruiter_replies':0,'interviews':0,'offers':0,'last_activity':None})
-        g['applications']+=1
-        s=(j.status or '').lower()
-        if s in {'recruiter','interview','offer'}: g['recruiter_replies']+=1
-        if s in {'interview','offer'}: g['interviews']+=1
-        if s=='offer': g['offers']+=1
-        dt=j.last_seen_at or j.applied_at or j.first_seen_at
-        if dt and (not g['last_activity'] or dt.isoformat()>g['last_activity']): g['last_activity']=dt.isoformat()
-    return sorted(groups.values(),key=lambda x:(x['interviews'],x['applications']),reverse=True)[:limit]
+    return corrected_analytics_companies(DB_PATH, limit)
+
+@app.get('/analytics/attributed')
+def analytics_attributed():
+    snapshot = load_attributed_snapshot(ATTRIBUTED_ANALYTICS_PATH)
+    return {"available": snapshot is not None, "snapshot": snapshot}
+
+
+@app.get('/analytics/unlinked-evidence')
+def analytics_unlinked_evidence(limit: int = Query(default=100, ge=1, le=500)):
+    """Provide a safe, read-only worklist for deterministic linkage review."""
+    return list_unlinked_evidence(DB_PATH, limit=limit)

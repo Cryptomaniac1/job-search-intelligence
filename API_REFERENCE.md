@@ -89,12 +89,28 @@ operator command; the existing read-only interview API and payload contracts are
 
 ## Analytics
 
-- `GET /analytics/overview`
-- `GET /analytics/timeline`
-- `GET /analytics/roles`
-- `GET /analytics/companies`
+- `GET /analytics/attributed` — reads the local ignored aggregate snapshot built from the reviewed
+  application plan, funnel analysis, calendar export, and synchronized email evidence. Monthly
+  rows expose the two application inputs, selected combined denominator, MoM change, distinct
+  linked recruiter replies/interview evidence/offers/rejections, separate calendar interview
+  rounds, and conversion rates. Returns `available=false` when the snapshot is absent. It never
+  returns raw subjects, bodies, senders, recipients, calendar titles, or event identifiers.
 
-These remain status-based prototype analytics; Sprint 1 does not change their contracts.
+- `GET /analytics/overview` — all-time evidence-linked totals; rolling 30-day totals; the preceding
+  90-day totals and monthly averages; rolling 30/60/90-day totals; calendar-month activity and MoM
+  changes; window boundaries; definitions; and linked/unlinked data-quality counts. The current
+  partial month compares with the same elapsed portion of the preceding month.
+- `GET /analytics/timeline` — monthly explicit application activity, evidence-linked outcomes, and
+  separate undated-record import activity.
+- `GET /analytics/roles` — corrected application and evidence-linked conversion totals/rates by
+  role family.
+- `GET /analytics/companies` — case-insensitive company groups, corrected conversion totals/rates,
+  and last real business activity. Optional `limit` defaults to 50.
+
+Sprint 12.2 replaces the former status-based prototype calculations. Application timelines never
+substitute `first_seen_at` for an application date. Downstream metrics count distinct linked jobs,
+so repeated email evidence cannot inflate conversion. Unlinked evidence remains visible in the
+overview's data-quality section but is not presented as a conversion.
 
 ## Version 1 product APIs
 

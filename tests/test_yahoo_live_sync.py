@@ -8,7 +8,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +18,9 @@ from backend.app.services.yahoo_live_sync import (
     FIRST_LIVE_LIMIT,
     FIRST_LIVE_UID,
     LIVE_CONFIRMATION_TOKEN,
+    authorize_continuation_batch,
     authorize_first_live_batch,
+    preflight_continuation_sync,
     preflight_live_sync,
 )
 from scripts.sync_yahoo_imap import write_json_evidence
@@ -225,6 +227,92 @@ def test_first_live_batch_gate_accepts_exact_values() -> None:
     )
 
 
+def test_continuation_gate_requires_exact_checkpoint_successor() -> None:
+    from backend.app.services.imap_checkpoint import ImapCheckpoint
+
+    checkpoint = ImapCheckpoint(
+        provider="yahoo",
+        account_namespace="person@yahoo.com",
+        folder="job",
+        since_date=SINCE_DATE,
+        uidvalidity="1578947209",
+        last_successful_uid=53392,
+        sync_started_at=datetime(2026, 8, 1),
+        sync_completed_at=datetime(2026, 8, 1),
+        scanned_count=100,
+        accepted_count=97,
+        skipped_count=3,
+        failure_count=0,
+    )
+    authorize_continuation_batch(
+        allow_live=True,
+        confirmation=LIVE_CONFIRMATION_TOKEN,
+        start_uid=53393,
+        checkpoint=checkpoint,
+    )
+    with pytest.raises(ValueError, match="checkpoint UID 53393"):
+        authorize_continuation_batch(
+            allow_live=True,
+            confirmation=LIVE_CONFIRMATION_TOKEN,
+            start_uid=53394,
+            checkpoint=checkpoint,
+        )
+
+
+def test_continuation_preflight_accepts_current_backup_and_count_evidence(
+    isolated_app: tuple[Any, Path], tmp_path: Path
+) -> None:
+    _, database = isolated_app
+    backup = tmp_path / "current.sqlite3"
+    shutil.copy2(database, backup)
+    metadata = tmp_path / "current.metadata.json"
+    metadata.write_text(
+        json.dumps(
+            {
+                "path": str(backup),
+                "checksum_sha256": _sha256(backup),
+                "alembic_revision": "20260808_0007",
+                "integrity_check": ["ok"],
+                "foreign_key_violations": [],
+            }
+        )
+    )
+    evidence = tmp_path / "count.json"
+    evidence.write_text(
+        json.dumps(
+            {
+                "mode": "count-only",
+                "folder": "job",
+                "since_date": "2024-07-01",
+                "uidvalidity": "1578947209",
+                "first_uid": 53393,
+                "last_uid": 54373,
+                "total_matched_uid_count": 978,
+                "search_complete": True,
+                "database_writes": 0,
+                "mailbox_mutations": 0,
+            }
+        )
+    )
+
+    result = preflight_continuation_sync(
+        database,
+        folder="job",
+        since_date=SINCE_DATE,
+        backup_metadata=metadata,
+        count_or_dry_run_evidence=evidence,
+        settings=_settings(),
+        expected_checksum=_sha256(database),
+        expected_start_uid=53393,
+        expected_uidvalidity="1578947209",
+        expected_live_path=database,
+    )
+
+    assert result["mode"] == "preflight-live-continuation"
+    assert result["network_connections"] == 0
+    assert result["database_writes"] == 0
+
+
 def test_live_cli_gate_rejects_after_uid_alias(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -246,6 +334,7 @@ def test_live_cli_gate_rejects_after_uid_alias(
     )
     monkeypatch.setattr(sync_yahoo_imap, "EXPECTED_LIVE_DATABASE", database)
     monkeypatch.setattr(sync_yahoo_imap, "live_preflight", lambda *args: {})
+    monkeypatch.setattr(sync_yahoo_imap, "read_checkpoint", lambda *args, **kwargs: None)
 
     with pytest.raises(ValueError, match="explicit --start-uid"):
         sync_yahoo_imap.live_sync_database(arguments, _settings(), start_uid=53290)

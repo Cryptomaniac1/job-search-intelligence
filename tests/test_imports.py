@@ -27,10 +27,12 @@ def mbox_message(
     ).encode()
 
 
-def upload_mbox(client: TestClient, provider: str, content: bytes) -> dict[str, Any]:
+def upload_mbox(
+    client: TestClient, provider: str, content: bytes, account_namespace: str = ""
+) -> dict[str, Any]:
     response = client.post(
         "/imports/mbox",
-        data={"mailbox_name": provider},
+        data={"mailbox_name": provider, "account_namespace": account_namespace},
         files={"file": (f"{provider}.mbox", content, "application/mbox")},
     )
     assert response.status_code == 200, response.text
@@ -93,6 +95,80 @@ def test_accounts_remain_separate_for_the_same_message_id(
     with sqlite3.connect(database_path) as connection:
         accounts = {row[0] for row in connection.execute("SELECT email_account FROM jobs")}
     assert accounts == {"gmail", "hotmail"}
+
+
+def test_same_provider_archives_remain_account_scoped(
+    isolated_app: tuple[TestClient, Path],
+) -> None:
+    client, database_path = isolated_app
+    content = mbox_message(message_id="shared@gmail.example")
+
+    pm = upload_mbox(client, "gmail", content, "solovat@gmail.com")
+    marketing = upload_mbox(client, "gmail", content, "soultanovr@gmail.com")
+
+    assert pm["role_family"] == "Product Manager / Technical Program Manager"
+    assert marketing["role_family"] == "Marketing"
+    assert table_count(database_path, "imported_messages") == 2
+    with sqlite3.connect(database_path) as connection:
+        accounts = {row[0] for row in connection.execute("SELECT email_account FROM jobs")}
+    assert accounts == {"solovat@gmail.com", "soultanovr@gmail.com"}
+
+
+def test_ibuildanapp_import_uses_explicit_role_not_account_default(
+    isolated_app: tuple[TestClient, Path],
+) -> None:
+    client, database_path = isolated_app
+    content = mbox_message(
+        subject="Application received",
+        body=(
+            "Thank you for applying for the position of Technical Delivery Manager. "
+            "Our team will review your application."
+        ),
+    )
+
+    upload_mbox(client, "gmail", content, "ibuildanapp@gmail.com")
+
+    with sqlite3.connect(database_path) as connection:
+        title, role = connection.execute("SELECT title, role_family FROM jobs").fetchone()
+    assert title == "Technical Delivery Manager"
+    assert role == "Delivery Management"
+
+
+def test_ibuildanapp_roles_are_deterministically_separated(
+    isolated_app: tuple[TestClient, Path],
+) -> None:
+    client, database_path = isolated_app
+    for index, title in enumerate(
+        ["Senior Sales Engineer", "Solutions Consultant", "Operations Manager"]
+    ):
+        upload_mbox(
+            client,
+            "gmail",
+            mbox_message(
+                message_id=f"role-{index}@example.com",
+                body=f"Thank you for applying. Position: {title}.",
+            ),
+            "ibuildanapp@gmail.com",
+        )
+
+    with sqlite3.connect(database_path) as connection:
+        roles = {row[0] for row in connection.execute("SELECT role_family FROM jobs")}
+    assert roles == {"Sales Engineering", "Solutions Consulting", "Operations Management"}
+
+
+def test_cross_account_generic_extracted_id_does_not_collide(
+    isolated_app: tuple[TestClient, Path],
+) -> None:
+    client, database_path = isolated_app
+    content = mbox_message(
+        message_id="generic-id@example.com",
+        body="Thank you for applying. Job Application received.",
+    )
+
+    upload_mbox(client, "gmail", content, "solovat@gmail.com")
+    upload_mbox(client, "gmail", content, "soultanovr@gmail.com")
+
+    assert table_count(database_path, "jobs") == 2
 
 
 def test_yahoo_repeat_import_and_provenance(

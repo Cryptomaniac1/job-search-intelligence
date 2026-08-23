@@ -212,11 +212,16 @@ preserved by the migration, all eight new tables began empty, `integrity_check` 
 `foreign_key_check` returned no violations. Subsequent approved bounded provider imports were
 additive and intentionally advanced the live evidence state.
 
-After Yahoo recovery and two bounded production passes each for Gmail and Hotmail, the verified
-runtime state is 7,750 `jobs`, 10 `email_imports`, 297 each of `imported_messages`,
-`email_classifications`, and `imap_message_metadata`, two recruiters, 12 interview events, and
-three provider checkpoints. The Gmail and Hotmail repeat passes added zero messages. The final
-SHA-256 is `382c42c9a7e1a104baf8c854c3eb3c76cd0b46210920fee505c882358d030367`.
+After the approved Sprint 12.3 Gmail/Hotmail continuations and a 1,000-message Yahoo continuation
+batch, the verified runtime state is 8,228 `jobs`, 13 `email_imports`, 7,384 each of
+`imported_messages`, `email_classifications`, and `imap_message_metadata`, 48 recruiters, 178
+interview events, and three provider checkpoints. The Yahoo checkpoint is UID `54425` for
+`solovat@yahoo.com` / `job`; the immediate second pass made zero writes and retained identical
+logical digests. The current SHA-256 is
+`0184110df9db0632bd8ccc11bf31008332a6e9db25cfcbd66b3aeb88408b1736`.
+
+This represents the reviewed Yahoo continuation scope, not an assertion that no newer or
+additional Yahoo messages exist beyond the selected server-side batch.
 The verified final backup and metadata are:
 
 - `/Users/solovatmacpro16/Documents/job-intelligence-backups/sprint-12/final/jobs-20260808T214439Z.sqlite3`

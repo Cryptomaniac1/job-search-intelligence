@@ -12,6 +12,7 @@ data/jobs.db
 data/*.db
 data/*.sqlite
 data/*.sqlite3
+data/*.json
 backups/*
 !data/.gitkeep
 !backups/.gitkeep

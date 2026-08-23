@@ -25,18 +25,6 @@ from backend.app.services.imap_checkpoint import (  # noqa: E402
     verify_sync_database,
     write_checkpoint,
 )
-from backend.app.services.yahoo_live_sync import (  # noqa: E402
-    EXPECTED_LIVE_DATABASE,
-    FIRST_LIVE_UID,
-    authorize_first_live_batch,
-    checkpoint_evidence,
-    database_state,
-    idempotency_evidence,
-    idempotency_token,
-    preflight_live_sync,
-    state_delta,
-)
-from backend.app.services.yahoo_incident import verify_yahoo_batch_read_only  # noqa: E402
 from backend.app.services.yahoo_imap import (  # noqa: E402
     DEFAULT_CONNECT_TIMEOUT,
     DEFAULT_HOST,
@@ -49,6 +37,20 @@ from backend.app.services.yahoo_imap import (  # noqa: E402
     YahooImapSettings,
     list_folders,
     scan_with_reconnect,
+)
+from backend.app.services.yahoo_incident import verify_yahoo_batch_read_only  # noqa: E402
+from backend.app.services.yahoo_live_sync import (  # noqa: E402
+    EXPECTED_LIVE_DATABASE,
+    FIRST_LIVE_UID,
+    authorize_continuation_batch,
+    authorize_first_live_batch,
+    checkpoint_evidence,
+    database_state,
+    idempotency_evidence,
+    idempotency_token,
+    preflight_continuation_sync,
+    preflight_live_sync,
+    state_delta,
 )
 
 PROTECTED_DATABASES = {
@@ -105,6 +107,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--limit", type=int)
     parser.add_argument("--allow-live-database", action="store_true")
     parser.add_argument("--confirm-live-sync")
+    parser.add_argument("--expected-live-sha256")
     parser.add_argument("--verify-idempotency", action="store_true")
     parser.add_argument("--backup-metadata", type=Path)
     parser.add_argument("--dry-run-evidence", type=Path)
@@ -132,9 +135,7 @@ def parse_arguments() -> argparse.Namespace:
         parser.error("--since-date is required for count-only, dry-run, and sync")
     if (arguments.sync or arguments.preflight_live) and arguments.database is None:
         parser.error("--sync and --preflight-live require an explicit --database")
-    if arguments.preflight_live and not (
-        arguments.backup_metadata and arguments.dry_run_evidence
-    ):
+    if arguments.preflight_live and not (arguments.backup_metadata and arguments.dry_run_evidence):
         parser.error("--preflight-live requires --backup-metadata and --dry-run-evidence")
     if arguments.output_json and not arguments.dry_run:
         parser.error("--output-json is supported only with --dry-run")
@@ -231,7 +232,9 @@ def write_json_evidence(path: Path, result: dict[str, Any]) -> Path:
     }
     present = forbidden.intersection(_nested_keys(result))
     if present:
-        raise ValueError(f"Yahoo dry-run evidence contains forbidden fields: {', '.join(sorted(present))}")
+        raise ValueError(
+            f"Yahoo dry-run evidence contains forbidden fields: {', '.join(sorted(present))}"
+        )
     resolved.parent.mkdir(parents=True, exist_ok=True)
     resolved.write_text(json.dumps(result, indent=2, sort_keys=True, default=str) + "\n")
     return resolved
@@ -242,7 +245,7 @@ def _nested_keys(value: object) -> set[str]:
         return {str(key) for key in value}.union(
             *(_nested_keys(item) for item in value.values()), set()
         )
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list | tuple):
         return set().union(*(_nested_keys(item) for item in value), set())
     return set()
 
@@ -283,9 +286,7 @@ def synchronize(
     os.environ["JOBS_DB_PATH"] = str(database)
     module = importlib.import_module("backend.main")
     imported: dict[str, Any] = module.import_yahoo_imap_messages(scan.messages)
-    idempotency_result = _verify_immediate_idempotency(
-        database, scan, enabled=verify_idempotency
-    )
+    idempotency_result = _verify_immediate_idempotency(database, scan, enabled=verify_idempotency)
     completed_at = datetime.now(UTC).replace(tzinfo=None)
     failures = [failure.__dict__ for failure in scan.failures] + list(imported["failures"])
     last_uid = _last_successful_uid(scan, imported, checkpoint)
@@ -377,6 +378,27 @@ def _verify_immediate_idempotency(
 
 
 def live_preflight(arguments: argparse.Namespace, settings: YahooImapSettings) -> dict[str, Any]:
+    checkpoint = read_checkpoint(
+        arguments.database,
+        provider="yahoo",
+        account_namespace=settings.account_namespace,
+        folder=arguments.folder,
+        since_date=arguments.since_date,
+    )
+    if checkpoint:
+        if not arguments.expected_live_sha256:
+            raise ValueError("Yahoo continuation requires --expected-live-sha256")
+        return preflight_continuation_sync(
+            arguments.database,
+            folder=arguments.folder,
+            since_date=arguments.since_date,
+            backup_metadata=arguments.backup_metadata,
+            count_or_dry_run_evidence=arguments.dry_run_evidence,
+            settings=settings,
+            expected_checksum=arguments.expected_live_sha256,
+            expected_start_uid=checkpoint.last_successful_uid + 1,
+            expected_uidvalidity=checkpoint.uidvalidity,
+        )
     return preflight_live_sync(
         arguments.database,
         folder=arguments.folder,
@@ -395,7 +417,22 @@ def live_sync_database(
         return refuse_protected_database(resolved)
     if not arguments.backup_metadata or not arguments.dry_run_evidence:
         raise ValueError("Live synchronization requires backup metadata and dry-run evidence")
+    checkpoint = read_checkpoint(
+        resolved,
+        provider="yahoo",
+        account_namespace=settings.account_namespace,
+        folder=arguments.folder,
+        since_date=arguments.since_date,
+    )
     live_preflight(arguments, settings)
+    if checkpoint:
+        authorize_continuation_batch(
+            allow_live=arguments.allow_live_database,
+            confirmation=arguments.confirm_live_sync,
+            start_uid=start_uid,
+            checkpoint=checkpoint,
+        )
+        return verify_sync_database(resolved)
     if arguments.after_uid is not None or arguments.start_uid != FIRST_LIVE_UID:
         raise ValueError("First live synchronization requires explicit --start-uid 53290")
     authorize_first_live_batch(

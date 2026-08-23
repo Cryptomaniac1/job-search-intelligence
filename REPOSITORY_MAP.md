@@ -13,6 +13,9 @@ backend/
       imap_checkpoint.py  # UID/UIDVALIDITY checkpoint persistence
       sync_status.py      # credential-safe provider status summaries
       version1_product.py # additive applications, companies, resumes, offers, and timelines
+      analytics.py        # corrected evidence-linked dashboard analytics and period comparisons
+      calendar_analytics.py # content-free deterministic ICS interview counts
+      attributed_analytics.py # aggregate plan/funnel/calendar/email attribution snapshot
     models/
     schemas/
     database/
@@ -39,12 +42,17 @@ scripts/
   sync_yahoo_imap.py      # previews, gated production sync, and evidence reporting
   sync_oauth_imap.py      # shared Gmail/Hotmail OAuth IMAP operator command
   analyze_yahoo_incident.py # offline incident analysis and disposable rollback rehearsal
+  analyze_calendar_interviews.py # privacy-preserving monthly ICS interview review
+  build_attributed_analytics.py # builds ignored aggregate analytics snapshot from reviewed sources
   recover_yahoo_incident.py # approval-gated five-UID recovery; requires separate approval
 tests/
   fixtures/classification/ # canonical cases and Version 1 reviewed benchmark
   fixtures/interview/     # sanitized deterministic extraction cases
   fixtures/yahoo_incident/ # sanitized 94/1/5 incident shape
   test_version1_product.py # Version 1 API, idempotency, dashboard, and performance coverage
+  test_analytics.py       # application-date, evidence-linkage, deduplication, and comparison tests
+  test_calendar_analytics.py # ICS date, privacy, exclusion, and deduplication coverage
+  test_attributed_analytics.py # source attribution, privacy, and snapshot endpoint coverage
 extension/
 docs/
 ```
