@@ -26,7 +26,7 @@ from .historical_interview_import import (
 )
 from .recruiter_crm import extract_recruiter
 
-EXPECTED_REVISIONS = {"20260712_0005", "20260712_0006", "20260808_0007"}
+EXPECTED_REVISIONS = {"20260712_0005", "20260712_0006", "20260808_0007", "20260823_0008"}
 TABLES = (
     "jobs",
     "email_imports",

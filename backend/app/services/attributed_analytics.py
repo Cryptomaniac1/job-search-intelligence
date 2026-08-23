@@ -470,15 +470,26 @@ def _email_evidence(database_path: Path) -> dict[str, Any]:
             for column in connection.execute("PRAGMA table_info(imap_message_metadata)")
         }
         account_column = "m.account_namespace" if "account_namespace" in metadata_columns else "''"
+        reviewed_links_available = "evidence_job_links" in tables
+        review_join = (
+            "LEFT JOIN evidence_job_links AS r ON r.message_identity = c.message_identity"
+            if reviewed_links_available
+            else ""
+        )
+        effective_job_id = (
+            "COALESCE(c.job_id, r.job_id)" if reviewed_links_available else "c.job_id"
+        )
         rows = connection.execute(
             f"""
             SELECT m.provider, {account_column} AS account_namespace,
                    m.message_identity, m.subject, m.text_body,
                    m.imap_internal_date, m.received_at,
-                   c.classification, c.job_id, j.company, j.title, j.role_family
+                   c.classification, {effective_job_id} AS job_id,
+                   j.company, j.title, j.role_family
             FROM imap_message_metadata AS m
             JOIN email_classifications AS c ON c.message_identity = m.message_identity
-            LEFT JOIN jobs AS j ON j.id = c.job_id
+            {review_join}
+            LEFT JOIN jobs AS j ON j.id = {effective_job_id}
             ORDER BY COALESCE(m.imap_internal_date, m.received_at),
                      m.provider, m.message_identity
             """

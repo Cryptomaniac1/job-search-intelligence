@@ -31,8 +31,10 @@ def test_baseline_migration_builds_current_two_table_schema(tmp_path: Path) -> N
         "alembic_version",
         "applications",
         "companies",
+        "company_aliases",
         "email_classifications",
         "email_imports",
+        "evidence_job_links",
         "imported_messages",
         "interview_events",
         "interviews",
@@ -50,7 +52,7 @@ def test_baseline_migration_builds_current_two_table_schema(tmp_path: Path) -> N
         "recruiter_relationships",
         "resumes",
     }
-    assert revision == ("20260808_0007",)
+    assert revision == ("20260823_0008",)
 
 
 def test_upgrade_from_baseline_preserves_existing_rows(tmp_path: Path) -> None:
@@ -139,7 +141,7 @@ def test_alembic_uses_database_path_secondary_override(tmp_path: Path) -> None:
 
     with sqlite3.connect(database_path) as connection:
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()
-    assert revision == ("20260808_0007",)
+    assert revision == ("20260823_0008",)
 
 
 def test_classification_migration_from_live_revision_is_additive(tmp_path: Path) -> None:
@@ -181,7 +183,7 @@ def test_classification_migration_from_live_revision_is_additive(tmp_path: Path)
 
     assert after == before
     assert classifications == 0
-    assert revision == "20260808_0007"
+    assert revision == "20260823_0008"
 
 
 def test_recruiter_migration_from_live_revision_is_additive(tmp_path: Path) -> None:
@@ -244,7 +246,7 @@ def test_recruiter_migration_from_live_revision_is_additive(tmp_path: Path) -> N
     assert indexes["ix_recruiter_job_job_id"] is False
     assert unique_columns == ["recruiter_id", "job_id", "relationship_type"]
     assert "ck_recruiter_job_relationship_type" in table_sql
-    assert revision == "20260808_0007"
+    assert revision == "20260823_0008"
 
 
 def test_version1_migration_is_additive_and_reversible(tmp_path: Path) -> None:
@@ -299,7 +301,7 @@ def test_version1_migration_is_additive_and_reversible(tmp_path: Path) -> None:
         revision = connection.execute("SELECT version_num FROM alembic_version").fetchone()[0]
     assert after == before
     assert set(new_counts.values()) == {0}
-    assert revision == "20260808_0007"
+    assert revision == "20260823_0008"
 
     subprocess.run(
         [sys.executable, "-m", "alembic", "downgrade", "20260712_0006"],

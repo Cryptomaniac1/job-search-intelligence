@@ -411,7 +411,7 @@ def test_provider_live_gate_is_offline_read_only_and_content_safe(
             {
                 "path": str(backup),
                 "checksum_sha256": _sha256(backup),
-                "alembic_revision": "20260808_0007",
+                "alembic_revision": "20260823_0008",
             }
         )
     )
@@ -466,7 +466,7 @@ def test_provider_live_gate_rejects_message_content_fields(
             {
                 "path": str(backup),
                 "checksum_sha256": _sha256(backup),
-                "alembic_revision": "20260808_0007",
+                "alembic_revision": "20260823_0008",
             }
         )
     )

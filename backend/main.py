@@ -44,7 +44,11 @@ try:
     )
     from backend.app.services.attributed_analytics import load_attributed_snapshot
     from backend.app.services.application_attribution import infer_application_role_family
-    from backend.app.services.evidence_review import list_unlinked_evidence
+    from backend.app.services.evidence_review import (
+        create_company_alias,
+        create_reviewed_job_link,
+        list_unlinked_evidence,
+    )
     from backend.app.services.import_identity import stable_message_identity
     from backend.app.services.historical_interview_import import (
         HistoricalInterviewCandidate,
@@ -108,7 +112,11 @@ except ModuleNotFoundError:  # Supports the existing `cd backend && uvicorn main
     )
     from app.services.attributed_analytics import load_attributed_snapshot
     from app.services.application_attribution import infer_application_role_family
-    from app.services.evidence_review import list_unlinked_evidence
+    from app.services.evidence_review import (
+        create_company_alias,
+        create_reviewed_job_link,
+        list_unlinked_evidence,
+    )
     from app.services.import_identity import stable_message_identity
     from app.services.historical_interview_import import (
         HistoricalInterviewCandidate,
@@ -457,6 +465,18 @@ class YahooImportItem(BaseModel):
 
 class YahooImportPayload(BaseModel):
     records: list[YahooImportItem]
+
+
+class EvidenceJobLinkInput(BaseModel):
+    message_identity: str = Field(min_length=1, max_length=67)
+    job_id: int = Field(gt=0)
+    reason: str = Field(min_length=3, max_length=2000)
+
+
+class CompanyAliasInput(BaseModel):
+    alias_name: str = Field(min_length=1, max_length=300)
+    canonical_name: str = Field(min_length=1, max_length=300)
+    reason: str = Field(min_length=3, max_length=2000)
 
 app = FastAPI(title="Job Intelligence v2", version="2.0.0")
 
@@ -2342,9 +2362,9 @@ def synchronization_status():
     return provider_sync_status(DB_PATH)
 
 
-def _domain_write(operation, *args):
+def _domain_write(operation, *args, **kwargs):
     try:
-        return operation(DB_PATH, *args)
+        return operation(DB_PATH, *args, **kwargs)
     except LookupError as exc:
         raise HTTPException(404, str(exc)) from exc
     except (RuntimeError, sqlite3.IntegrityError, ValueError) as exc:
@@ -2795,3 +2815,25 @@ def analytics_attributed():
 def analytics_unlinked_evidence(limit: int = Query(default=100, ge=1, le=500)):
     """Provide a safe, read-only worklist for deterministic linkage review."""
     return list_unlinked_evidence(DB_PATH, limit=limit)
+
+
+@app.post('/analytics/evidence-links', status_code=201)
+def analytics_create_evidence_link(payload: EvidenceJobLinkInput):
+    """Store a reviewed link separately; email and classifier evidence remain immutable."""
+    return _domain_write(
+        create_reviewed_job_link,
+        message_identity=payload.message_identity,
+        job_id=payload.job_id,
+        reason=payload.reason,
+    )
+
+
+@app.post('/analytics/company-aliases', status_code=201)
+def analytics_create_company_alias(payload: CompanyAliasInput):
+    """Store a reversible reviewed company alias without rewriting source evidence."""
+    return _domain_write(
+        create_company_alias,
+        alias_name=payload.alias_name,
+        canonical_name=payload.canonical_name,
+        reason=payload.reason,
+    )

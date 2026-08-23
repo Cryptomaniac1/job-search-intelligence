@@ -75,3 +75,84 @@ def test_unlinked_evidence_api_is_read_only(isolated_app: tuple[TestClient, Path
 
     assert response.status_code == 200
     assert response.json() == {"total_unlinked": 0, "returned": 0, "items": []}
+
+
+def test_reviewed_link_is_additive_and_removes_only_that_item_from_queue(tmp_path: Path) -> None:
+    database = tmp_path / "review.db"
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE email_classifications (
+                message_identity TEXT, job_id INTEGER, classification TEXT, confidence REAL,
+                classifier_version TEXT, reason_json TEXT, created_at TEXT
+            );
+            CREATE TABLE imported_messages (
+                stable_message_identity TEXT, provider TEXT,
+                source_import_id INTEGER, imported_at TEXT
+            );
+            CREATE TABLE email_imports (id INTEGER, mailbox_name TEXT);
+            CREATE TABLE imap_message_metadata (
+                message_identity TEXT, provider TEXT, account_namespace TEXT,
+                imap_internal_date TEXT, received_at TEXT
+            );
+            CREATE TABLE jobs (id INTEGER PRIMARY KEY);
+            CREATE TABLE evidence_job_links (
+                message_identity TEXT UNIQUE, job_id INTEGER, link_method TEXT, reason TEXT,
+                created_at TEXT, updated_at TEXT
+            );
+            """
+        )
+        connection.execute(
+            "INSERT INTO imported_messages VALUES ('v1:review', 'gmail', 1, '2026-08-23')"
+        )
+        connection.execute("INSERT INTO jobs VALUES (7)")
+        connection.execute(
+            "INSERT INTO email_classifications VALUES ('v1:review', NULL, 'REJECTION', "
+            "0.99, 'v1', '{}', '2026-08-23')"
+        )
+
+    from backend.app.services.evidence_review import create_reviewed_job_link
+
+    created = create_reviewed_job_link(
+        database,
+        message_identity="v1:review",
+        job_id=7,
+        reason="Exact requisition shown in review.",
+    )
+
+    assert created == {"message_identity": "v1:review", "job_id": 7, "link_method": "reviewed"}
+    assert list_unlinked_evidence(database) == {"total_unlinked": 0, "returned": 0, "items": []}
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT job_id FROM evidence_job_links").fetchone()[0] == 7
+        assert connection.execute("SELECT job_id FROM email_classifications").fetchone()[0] is None
+
+
+def test_company_alias_is_reversible_and_never_changes_jobs(tmp_path: Path) -> None:
+    database = tmp_path / "review.db"
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE jobs (id INTEGER PRIMARY KEY, company TEXT);
+            CREATE TABLE company_aliases (
+                alias_name TEXT, normalized_alias TEXT UNIQUE, canonical_name TEXT, reason TEXT,
+                created_at TEXT, updated_at TEXT
+            );
+            INSERT INTO jobs VALUES (1, 'Google LLC');
+            """
+        )
+
+    from backend.app.services.evidence_review import create_company_alias
+
+    create_company_alias(
+        database,
+        alias_name="Google LLC",
+        canonical_name="Google",
+        reason="Reviewed legal suffix normalization.",
+    )
+
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT company FROM jobs").fetchone()[0] == "Google LLC"
+        assert (
+            connection.execute("SELECT canonical_name FROM company_aliases").fetchone()[0]
+            == "Google"
+        )

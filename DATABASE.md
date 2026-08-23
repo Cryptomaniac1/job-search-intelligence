@@ -140,6 +140,7 @@ recovery gate. The SQLite-safe incident backup and sanitized evidence are extern
 - `20260712_0006`: Yahoo IMAP checkpoints and immutable UID transport metadata.
 - `20260808_0007`: additive Version 1 product records for companies, resumes, applications,
   job descriptions, offers, recruiter relationships, notes, and interactions.
+- `20260823_0008`: additive reviewed evidence-to-job links and reversible company aliases.
 
 The live runtime database was upgraded from `20260712_0002` to `20260712_0003` on 2026-07-12
 through the approval-gated live-migration workflow. The migration preserved 7,718 `jobs` rows,
@@ -205,6 +206,13 @@ check constraints prevent duplicate job applications and invalid lifecycle value
 The migration is reversible on a disposable database, but downgrading after any Version 1 product
 record exists would destroy those new records. Use a verified backup or a separately reviewed
 evidence-preserving migration plan instead.
+
+## Evidence review schema
+
+Revision `20260823_0008` additively creates `evidence_job_links` and `company_aliases`.
+`evidence_job_links` records a reviewed job ID and a required reason against the stable message
+identity; it does not update `imported_messages` or `email_classifications`. `company_aliases`
+stores a reversible reviewed alias separately from historical job and email company text.
 
 On 2026-08-08, the ignored runtime database was approval-gated and upgraded from
 `20260712_0006` to `20260808_0007`. The pre-existing table counts and logical digests were

@@ -9,6 +9,8 @@ Revision `20260712_0006` adds date-scope-aware Yahoo IMAP checkpoints and immuta
 metadata, including IMAP internal-date and requested-since-date audit fields.
 Revision `20260808_0007` additively adds companies, resumes, applications, job descriptions,
 offers, recruiter relationships, notes, and interactions for Version 1 product closeout.
+Revision `20260823_0008` additively adds reviewed evidence-to-job links and reversible company
+aliases. It never updates imported messages or deterministic classification rows.
 
 - The default target is `data/jobs.db`; `JOBS_DB_PATH` and then `DATABASE_PATH` override it.
 - Use an override with a disposable database for development and automated verification.

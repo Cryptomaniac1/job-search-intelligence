@@ -120,6 +120,11 @@ Calendar interview review is additive evidence analysis. It must:
   Specific evidence takes priority: Solutions Consulting, Sales Engineering, Delivery Management,
   and Operations Management remain separate categories.
 - Outcomes use distinct evidence-linked jobs.
+- A reviewed link is stored separately from imported email and classifier evidence. It is included
+  in outcome analytics only after a reviewer records a job ID and reason; unresolved evidence
+  remains excluded from conversion rates.
+- Company aliases are reversible display corrections. They do not replace raw company strings in
+  historical email, imported-message, classification, or job records.
 - Company grouping is case-insensitive and preserves the most common display spelling.
 - Last activity uses a real application or linked event date, never an import timestamp.
 - Company analytics are directional when company extraction is unknown or low quality; data

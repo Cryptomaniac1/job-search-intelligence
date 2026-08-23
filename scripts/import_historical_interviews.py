@@ -65,13 +65,16 @@ def verify_database(path: Path, *, allow_live_database: bool) -> None:
         ("20260712_0005",),
         ("20260712_0006",),
         ("20260808_0007",),
+        ("20260823_0008",),
     }:
         raise SystemExit("Database must include the Interview Pipeline schema")
     if not required.issubset(tables):
         raise SystemExit("Database is missing required Interview Pipeline tables")
 
 
-def sources(arguments: argparse.Namespace) -> Iterable[tuple[str, Path, Iterable[HistoricalMessage]]]:
+def sources(
+    arguments: argparse.Namespace,
+) -> Iterable[tuple[str, Path, Iterable[HistoricalMessage]]]:
     for path in arguments.gmail_mbox:
         yield "gmail", path, iter_mbox_messages(path, "gmail")
     for path in arguments.hotmail_mbox:

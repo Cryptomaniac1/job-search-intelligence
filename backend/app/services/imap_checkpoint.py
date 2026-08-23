@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
-EXPECTED_REVISION = "20260808_0007"
+EXPECTED_REVISION = "20260823_0008"
 
 
 class UidValidityChangedError(RuntimeError):
