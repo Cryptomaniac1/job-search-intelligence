@@ -335,7 +335,11 @@ def validate_recovery_gate(
             connection.execute("SELECT COUNT(*) FROM imap_sync_checkpoints").fetchone()[0]
         )
     analysis = analyze_incident(resolved, dry_run_evidence)
-    if revision not in {"20260712_0006", "20260808_0007"} or integrity != "ok" or foreign_keys:
+    if (
+        revision not in {"20260712_0006", "20260808_0007", "20260823_0008"}
+        or integrity != "ok"
+        or foreign_keys
+    ):
         raise ValueError("Incident database health validation failed")
     if checkpoint_count or tuple(analysis["missing_uids"]) != INCIDENT_UIDS:
         raise ValueError("Incident recovery scope no longer matches the approved five UIDs")

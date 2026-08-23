@@ -74,7 +74,9 @@ the product and architecture documents remain part of the roadmap unless explici
   RecruiterRelationship, Note, and Interaction persistence; local correction APIs; company
   timelines; application/offer/resume/company/settings dashboard views; deterministic resume/job
   scoring; and repeatable temporary-database product and performance tests. The candidate
-  migration is `20260808_0007` and is applied to the runtime database.
+  migration is `20260808_0007` and is applied to the runtime database. Sprint 13 adds the
+  un-applied, additive `20260823_0008` reviewed-link and company-alias migration; it must be
+  rehearsed and approval-gated before any live database use.
 - Sprint 12 production closeout completed with 7,750 jobs, 10 import audit rows, 297 immutable
   imported messages/classifications/IMAP metadata rows, two recruiters, 12 interview events, and
   three provider checkpoints. Runtime integrity and foreign-key checks pass. The final verified

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +32,17 @@ REVIEWABLE_CLASSIFICATIONS = (
 def list_unlinked_evidence(database_path: Path, *, limit: int = 100) -> dict[str, Any]:
     """Return provenance-only work items; never infer or persist a proposed link."""
     placeholders = ", ".join("?" for _ in REVIEWABLE_CLASSIFICATIONS)
+    link_join = "LEFT JOIN evidence_job_links AS l ON l.message_identity = c.message_identity"
+    with sqlite3.connect(database_path) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+    if "evidence_job_links" not in tables:
+        link_join = ""
+        reviewed_filter = ""
+    else:
+        reviewed_filter = "AND l.message_identity IS NULL"
     query = f"""
         SELECT c.message_identity, c.classification, c.confidence, c.classifier_version,
                c.reason_json,
@@ -42,7 +55,8 @@ def list_unlinked_evidence(database_path: Path, *, limit: int = 100) -> dict[str
           LEFT JOIN imported_messages AS i ON i.stable_message_identity = c.message_identity
           LEFT JOIN email_imports AS e ON e.id = i.source_import_id
           LEFT JOIN imap_message_metadata AS m ON m.message_identity = c.message_identity
-         WHERE c.job_id IS NULL AND c.classification IN ({placeholders})
+          {link_join}
+         WHERE c.job_id IS NULL AND c.classification IN ({placeholders}) {reviewed_filter}
          ORDER BY occurred_at DESC, c.message_identity
          LIMIT ?
     """
@@ -54,11 +68,70 @@ def list_unlinked_evidence(database_path: Path, *, limit: int = 100) -> dict[str
             f"WHERE job_id IS NULL AND classification IN ({placeholders})",
             REVIEWABLE_CLASSIFICATIONS,
         ).fetchone()[0]
+        if "evidence_job_links" in tables:
+            total -= connection.execute(
+                "SELECT COUNT(*) FROM evidence_job_links AS l "
+                "JOIN email_classifications AS c ON c.message_identity = l.message_identity "
+                f"WHERE c.job_id IS NULL AND c.classification IN ({placeholders})",
+                REVIEWABLE_CLASSIFICATIONS,
+            ).fetchone()[0]
     return {
         "total_unlinked": total,
         "returned": len(rows),
         "items": [_review_item(row) for row in rows],
     }
+
+
+def create_reviewed_job_link(
+    database_path: Path, *, message_identity: str, job_id: int, reason: str
+) -> dict[str, Any]:
+    """Persist a human-reviewed link without changing immutable email evidence."""
+    clean_reason = reason.strip()
+    if not clean_reason:
+        raise ValueError("A review reason is required.")
+    now = datetime.now().isoformat(timespec="seconds")
+    with sqlite3.connect(database_path) as connection:
+        if not connection.execute(
+            "SELECT 1 FROM email_classifications WHERE message_identity = ?", (message_identity,)
+        ).fetchone():
+            raise LookupError("Evidence record was not found.")
+        if not connection.execute("SELECT 1 FROM jobs WHERE id = ?", (job_id,)).fetchone():
+            raise LookupError("Job was not found.")
+        connection.execute(
+            """INSERT INTO evidence_job_links
+               (message_identity, job_id, link_method, reason, created_at, updated_at)
+               VALUES (?, ?, 'reviewed', ?, ?, ?)
+               ON CONFLICT(message_identity) DO UPDATE SET
+                   job_id = excluded.job_id,
+                   reason = excluded.reason,
+                   updated_at = excluded.updated_at""",
+            (message_identity, job_id, clean_reason, now, now),
+        )
+    return {"message_identity": message_identity, "job_id": job_id, "link_method": "reviewed"}
+
+
+def create_company_alias(
+    database_path: Path, *, alias_name: str, canonical_name: str, reason: str
+) -> dict[str, Any]:
+    """Save a reversible display alias; raw company values remain unchanged."""
+    alias = alias_name.strip()
+    canonical = canonical_name.strip()
+    clean_reason = reason.strip()
+    normalized = re.sub(r"[^a-z0-9]+", " ", alias.casefold()).strip()
+    if not alias or not canonical or not clean_reason or not normalized:
+        raise ValueError("Alias, canonical company, and review reason are required.")
+    now = datetime.now().isoformat(timespec="seconds")
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """INSERT INTO company_aliases
+               (alias_name, normalized_alias, canonical_name, reason, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(normalized_alias) DO UPDATE SET
+                   alias_name = excluded.alias_name, canonical_name = excluded.canonical_name,
+                   reason = excluded.reason, updated_at = excluded.updated_at""",
+            (alias, normalized, canonical, clean_reason, now, now),
+        )
+    return {"alias_name": alias, "canonical_name": canonical, "normalized_alias": normalized}
 
 
 def _review_item(row: sqlite3.Row) -> dict[str, Any]:

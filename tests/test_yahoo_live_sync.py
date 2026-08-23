@@ -185,7 +185,7 @@ def test_live_preflight_rejects_wrong_database_revision(
     database, metadata, dry_run = live_gate_files
     with sqlite3.connect(database) as connection:
         connection.execute("UPDATE alembic_version SET version_num='20260712_0005'")
-    with pytest.raises(ValueError, match="revision 20260808_0007"):
+    with pytest.raises(ValueError, match="revision 20260823_0008"):
         _preflight(database, metadata, dry_run, expected_checksum=_sha256(database))
 
 
@@ -271,7 +271,7 @@ def test_continuation_preflight_accepts_current_backup_and_count_evidence(
             {
                 "path": str(backup),
                 "checksum_sha256": _sha256(backup),
-                "alembic_revision": "20260808_0007",
+                "alembic_revision": "20260823_0008",
                 "integrity_check": ["ok"],
                 "foreign_key_violations": [],
             }

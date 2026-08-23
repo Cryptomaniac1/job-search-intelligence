@@ -61,7 +61,7 @@ def schema_ready(path: Path) -> bool:
 
 def _require_schema(path: Path) -> None:
     if not schema_ready(path):
-        raise RuntimeError("Version 1 schema requires Alembic revision 20260808_0007")
+        raise RuntimeError("Version 1 schema requires the current Alembic revision")
 
 
 def _rows(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:

@@ -106,6 +106,14 @@ operator command; the existing read-only interview API and payload contracts are
   role family.
 - `GET /analytics/companies` — case-insensitive company groups, corrected conversion totals/rates,
   and last real business activity. Optional `limit` defaults to 50.
+- `GET /analytics/unlinked-evidence` — a content-free review queue for outcome evidence without a
+  deterministic job link. It exposes provenance, classification, confidence, timestamp, and rule
+  signals only; it never returns message subjects, senders, recipients, or bodies.
+- `POST /analytics/evidence-links` — records a human-reviewed `{message_identity, job_id, reason}`
+  link in a separate additive table. It does not change the original email, import, or classifier
+  record. Requires migration `20260823_0008`.
+- `POST /analytics/company-aliases` — records a reversible reviewed `{alias_name, canonical_name,
+  reason}` correction without rewriting source company values. Requires migration `20260823_0008`.
 
 Sprint 12.2 replaces the former status-based prototype calculations. Application timelines never
 substitute `first_seen_at` for an application date. Downstream metrics count distinct linked jobs,
