@@ -114,6 +114,48 @@ def test_same_provider_archives_remain_account_scoped(
     assert accounts == {"solovat@gmail.com", "soultanovr@gmail.com"}
 
 
+def test_ibuildanapp_import_uses_explicit_role_not_account_default(
+    isolated_app: tuple[TestClient, Path],
+) -> None:
+    client, database_path = isolated_app
+    content = mbox_message(
+        subject="Application received",
+        body=(
+            "Thank you for applying for the position of Technical Delivery Manager. "
+            "Our team will review your application."
+        ),
+    )
+
+    upload_mbox(client, "gmail", content, "ibuildanapp@gmail.com")
+
+    with sqlite3.connect(database_path) as connection:
+        title, role = connection.execute("SELECT title, role_family FROM jobs").fetchone()
+    assert title == "Technical Delivery Manager"
+    assert role == "Delivery Management"
+
+
+def test_ibuildanapp_roles_are_deterministically_separated(
+    isolated_app: tuple[TestClient, Path],
+) -> None:
+    client, database_path = isolated_app
+    for index, title in enumerate(
+        ["Senior Sales Engineer", "Solutions Consultant", "Operations Manager"]
+    ):
+        upload_mbox(
+            client,
+            "gmail",
+            mbox_message(
+                message_id=f"role-{index}@example.com",
+                body=f"Thank you for applying. Position: {title}.",
+            ),
+            "ibuildanapp@gmail.com",
+        )
+
+    with sqlite3.connect(database_path) as connection:
+        roles = {row[0] for row in connection.execute("SELECT role_family FROM jobs")}
+    assert roles == {"Sales Engineering", "Solutions Consulting", "Operations Management"}
+
+
 def test_cross_account_generic_extracted_id_does_not_collide(
     isolated_app: tuple[TestClient, Path],
 ) -> None:

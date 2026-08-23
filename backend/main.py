@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import html
 import io
 import json
 import mailbox
@@ -42,6 +43,8 @@ try:
         analytics_timeline as corrected_analytics_timeline,
     )
     from backend.app.services.attributed_analytics import load_attributed_snapshot
+    from backend.app.services.application_attribution import infer_application_role_family
+    from backend.app.services.evidence_review import list_unlinked_evidence
     from backend.app.services.import_identity import stable_message_identity
     from backend.app.services.historical_interview_import import (
         HistoricalInterviewCandidate,
@@ -104,6 +107,8 @@ except ModuleNotFoundError:  # Supports the existing `cd backend && uvicorn main
         analytics_timeline as corrected_analytics_timeline,
     )
     from app.services.attributed_analytics import load_attributed_snapshot
+    from app.services.application_attribution import infer_application_role_family
+    from app.services.evidence_review import list_unlinked_evidence
     from app.services.import_identity import stable_message_identity
     from app.services.historical_interview_import import (
         HistoricalInterviewCandidate,
@@ -488,8 +493,8 @@ ACCOUNT_NAMESPACE_MAP = {
         "resume_family": "Growth / Lifecycle / Product Marketing",
     },
     ("gmail", "ibuildanapp@gmail.com"): {
-        "role_family": "Sales Engineer / Delivery Manager",
-        "resume_family": "Sales Engineering / Delivery",
+        "role_family": "Operations / Sales Engineering",
+        "resume_family": "Operations / Sales Engineering",
     },
 }
 
@@ -524,8 +529,12 @@ CONFIRMATION_PATTERNS = [
 ]
 
 TITLE_PATTERNS = [
-    re.compile(r"(?:position|role|job)\s*[:\-]\s*(.{3,180})", re.I),
-    re.compile(r"application (?:for|to)\s+(.{3,180})", re.I),
+    re.compile(r"(?:position|role|job)\s*[:\-]\s*([^\n]{3,180})", re.I),
+    re.compile(
+        r"(?:for|to)\s+(?:the\s+)?(?:position|role|job)(?:\s+of)?\s+([^\n]{3,180})",
+        re.I,
+    ),
+    re.compile(r"application\s+(?:for|to)\s+([^\n]{3,180})", re.I),
 ]
 
 def decode_mime(value: str | None) -> str:
@@ -561,7 +570,7 @@ def message_body(message: Message) -> str:
         except Exception:
             pass
 
-    text = "\n".join(parts)
+    text = html.unescape("\n".join(parts))
     text = re.sub(r"<[^>]+>", " ", text)
     return re.sub(r"\s+", " ", text).strip()
 
@@ -614,6 +623,26 @@ def normalize_title(value: str) -> str:
     value = re.sub(r"\b(sr\.?|senior|lead|principal|staff|manager|director|head of)\b", "", value, flags=re.I)
     return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
 
+def clean_extracted_title(value: str) -> str:
+    """Keep a short role phrase; never turn surrounding email prose into a title."""
+    value = html.unescape(value)
+    value = re.sub(r"\s+", " ", value).strip(" .:-")
+    value = re.sub(r"^(?:the\s+)?(?:position|role|job)(?:\s+of)?\s+", "", value, flags=re.I)
+    boundary = re.search(
+        r"(?:\.|\s+(?:and|at|with|where|while|if|we|our|your|you)\b|\s+-\s+(?:we|our)\b)",
+        value,
+        re.I,
+    )
+    if boundary:
+        value = value[: boundary.start()]
+    value = value.strip(" ,.:;|–—-()")
+    if len(value) > 100 or len(value.split()) > 12:
+        return ""
+    if value.casefold() in {"application", "application confirmation", "your application"}:
+        return ""
+    return value
+
+
 def extract_company_and_title(subject: str, body: str, sender: str) -> tuple[str, str]:
     combined = f"{subject} {body}"
 
@@ -621,11 +650,7 @@ def extract_company_and_title(subject: str, body: str, sender: str) -> tuple[str
     for pattern in TITLE_PATTERNS:
         match = pattern.search(combined)
         if match:
-            title = match.group(1)
-            title = re.split(r"[|•\n\r]", title)[0]
-            title = re.sub(r"\s{2,}", " ", title).strip(" .:-")
-            if len(title) > 180:
-                title = ""
+            title = clean_extracted_title(match.group(1))
             if title:
                 break
 
@@ -730,6 +755,7 @@ def match_or_create_application(
     message_id: str,
     stable_identity: str,
     account_namespace: str = "",
+    inferred_role_family: str = "",
 ) -> tuple[Job, float, bool]:
     account_key = account_namespace.strip().casefold() or mailbox_name
     account = account_profile(mailbox_name, account_key)
@@ -780,7 +806,15 @@ def match_or_create_application(
             best_score = score
             best_job = job
 
-    matched = bool(best_job and best_score >= 45)
+    role_conflict = bool(
+        best_job
+        and inferred_role_family
+        and best_job.role_family
+        and best_job.role_family != inferred_role_family
+        and not job_id
+        and not requisition_id
+    )
+    matched = bool(best_job and best_score >= 45 and not role_conflict)
 
     created = not matched
     if created:
@@ -816,7 +850,7 @@ def match_or_create_application(
     if not best_job.email_account:
         best_job.email_account = account_key
     if not best_job.role_family:
-        best_job.role_family = account["role_family"]
+        best_job.role_family = inferred_role_family or account["role_family"]
     if not best_job.resume_family:
         best_job.resume_family = account["resume_family"]
     if applied_at and best_job.applied_at is None:
@@ -2023,6 +2057,9 @@ async def import_mbox(
                             message_id=message_id,
                             stable_identity=identity,
                             account_namespace=account_namespace,
+                            inferred_role_family=(
+                                infer_application_role_family(f"{subject}\n{body}") or ""
+                            ),
                         )
                     recruiter_evidence = extract_recruiter(
                         classification=classification.classification.value,
@@ -2752,3 +2789,9 @@ def analytics_companies(limit:int=50):
 def analytics_attributed():
     snapshot = load_attributed_snapshot(ATTRIBUTED_ANALYTICS_PATH)
     return {"available": snapshot is not None, "snapshot": snapshot}
+
+
+@app.get('/analytics/unlinked-evidence')
+def analytics_unlinked_evidence(limit: int = Query(default=100, ge=1, le=500)):
+    """Provide a safe, read-only worklist for deterministic linkage review."""
+    return list_unlinked_evidence(DB_PATH, limit=limit)

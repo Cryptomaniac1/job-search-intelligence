@@ -116,6 +116,15 @@ the product and architecture documents remain part of the roadmap unless explici
   subsequently passed all 227 tests, Ruff, Black, MyPy, Python and JavaScript syntax checks, and
   Git whitespace validation. The Yahoo incident regression fixture now constructs the documented
   historical partial state directly rather than disabling the currently safe importer.
+- On 2026-08-22, the approved `ibuildanapp@gmail.com` Gmail Takeout import added 1,662 immutable
+  messages with zero import failures. It produced 438 application confirmations, 250 new jobs,
+  18 deterministic recruiters, 16 interviews, and 59 interview events without changing existing
+  rows. The live database passed integrity and foreign-key checks before and after the import;
+  the verified pre-import backup and result record are stored outside the repository. The
+  dashboard snapshot now exposes 374 role-attributed confirmed resume submissions: Sales
+  Engineering 129, Operations / Sales Engineering 104 (documented account fallback), Operations
+  Management 11, Delivery Management 10, and Solutions Consulting 5. The remaining 1,403
+  confirmations have no deterministic role and are disclosed rather than assigned speculatively.
 
 ## Prototype
 

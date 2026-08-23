@@ -109,6 +109,16 @@ Calendar interview review is additive evidence analysis. It must:
 ### Role and company analytics
 
 - Role and company denominators use the corrected application population.
+- A **confirmed resume submission** is a distinct, immutable `APPLICATION_CONFIRMATION` email
+  identity. It is evidence of a submission, not a duplicate count of every message or a claim
+  that every job row represents a completed application.
+- The resume-submission-by-role tables include only deterministic role evidence: a specific role
+  found in the email subject/body, or the documented provider-account fallback when no specific
+  role is present. Unresolved confirmations are excluded from role totals and shown as a separate
+  count; analytics must never invent a role to make the table sum to all confirmations.
+- For the `ibuildanapp@gmail.com` archive, the fallback label is `Operations / Sales Engineering`.
+  Specific evidence takes priority: Solutions Consulting, Sales Engineering, Delivery Management,
+  and Operations Management remain separate categories.
 - Outcomes use distinct evidence-linked jobs.
 - Company grouping is case-insensitive and preserves the most common display spelling.
 - Last activity uses a real application or linked event date, never an import timestamp.

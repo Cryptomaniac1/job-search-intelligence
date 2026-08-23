@@ -6,7 +6,10 @@ import zipfile
 from datetime import date
 from pathlib import Path
 
-from backend.app.services.attributed_analytics import build_attributed_snapshot
+from backend.app.services.attributed_analytics import (
+    _calendar_attribution,
+    build_attributed_snapshot,
+)
 from fastapi.testclient import TestClient
 
 
@@ -226,6 +229,50 @@ def test_snapshot_includes_account_scoped_mbox_confirmations(
     assert "solovat@gmail.com" in accounts
 
 
+def test_snapshot_reports_monthly_confirmed_resume_submissions_by_role(
+    isolated_app: tuple[TestClient, Path], tmp_path: Path
+) -> None:
+    client, database = isolated_app
+    message = (
+        b"From careers@example.com Sat Aug 01 00:00:00 2026\n"
+        b"Subject: Application confirmation\n"
+        b"From: careers@example.com\n"
+        b"Date: Sat, 01 Aug 2026 12:00:00 +0000\n"
+        b"Message-ID: <delivery@example.com>\n"
+        b"Content-Type: text/plain; charset=utf-8\n\n"
+        b"Thank you for applying for the position of Technical Delivery Manager."
+    )
+    response = client.post(
+        "/imports/mbox",
+        data={"mailbox_name": "gmail", "account_namespace": "ibuildanapp@gmail.com"},
+        files={"file": ("ibuild.mbox", message, "application/mbox")},
+    )
+    assert response.status_code == 200
+    plan, funnel, calendar = (
+        tmp_path / "plan.xlsx",
+        tmp_path / "funnel.docx",
+        tmp_path / "calendar.ics",
+    )
+    _xlsx(plan)
+    _docx(funnel)
+    _ics(calendar)
+
+    result = build_attributed_snapshot(
+        plan, funnel, calendar, database, through_date=date(2026, 8, 8)
+    )
+
+    assert result["email_evidence"]["resume_submissions_by_role"] == [
+        {"role_family": "Delivery Management", "confirmed_resume_submissions": 1}
+    ]
+    assert result["email_evidence"]["resume_submissions_monthly_by_role"] == [
+        {
+            "period": "2026-08",
+            "role_family": "Delivery Management",
+            "confirmed_resume_submissions": 1,
+        }
+    ]
+
+
 def test_extension_submission_ledger_is_authoritative_for_its_recorded_month(
     tmp_path: Path,
 ) -> None:
@@ -276,3 +323,97 @@ def test_extension_submission_ledger_is_authoritative_for_its_recorded_month(
     assert august["linkedin_extension_applications"] == 1
     assert august["combined_unique_applications"] == 1
     assert august["combined_source"] == "linkedin_extension_ledger"
+
+
+def test_runtime_linkedin_ledger_is_not_replaced_by_a_smaller_external_copy(
+    tmp_path: Path,
+) -> None:
+    plan, funnel, calendar, runtime, external = (
+        tmp_path / "plan.xlsx",
+        tmp_path / "funnel.docx",
+        tmp_path / "calendar.ics",
+        tmp_path / "runtime.db",
+        tmp_path / "stale-ledger.db",
+    )
+    _xlsx(plan)
+    _docx(funnel)
+    _ics(calendar)
+    for path in (runtime, external):
+        with sqlite3.connect(path) as connection:
+            connection.execute(
+                """CREATE TABLE jobs (
+                    id INTEGER PRIMARY KEY, linkedin_job_id TEXT, company TEXT, title TEXT,
+                    role_family TEXT, source TEXT, status TEXT, application_source TEXT,
+                    first_seen_at TEXT, applied_at TEXT
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE imap_message_metadata (
+                    provider TEXT, message_identity TEXT, subject TEXT, text_body TEXT,
+                    imap_internal_date TEXT, received_at TEXT
+                )"""
+            )
+            connection.execute(
+                "CREATE TABLE email_classifications "
+                "(message_identity TEXT, classification TEXT, job_id INTEGER)"
+            )
+    with sqlite3.connect(runtime) as connection:
+        connection.executemany(
+            "INSERT INTO jobs VALUES (?, ?, 'Example', 'Role', '', 'linkedin', 'applied', "
+            "'linkedin_extension_legacy', ?, ?)",
+            [
+                (1, "runtime-1", "2026-08-01T09:00:00", "2026-08-01T09:00:00"),
+                (2, "runtime-2", "2026-08-02T09:00:00", "2026-08-02T09:00:00"),
+            ],
+        )
+    with sqlite3.connect(external) as connection:
+        connection.execute(
+            "INSERT INTO jobs VALUES (1, 'stale-1', 'Example', 'Role', '', 'linkedin', "
+            "'applied', 'linkedin_extension_legacy', '2026-08-01T09:00:00', "
+            "'2026-08-01T09:00:00')"
+        )
+
+    result = build_attributed_snapshot(
+        plan,
+        funnel,
+        calendar,
+        runtime,
+        through_date=date(2026, 8, 8),
+        linkedin_submission_ledger_path=external,
+    )
+
+    august = result["application_activity"]["combined_monthly"][-1]
+    assert august["linkedin_extension_applications"] == 2
+    assert result["sources"]["linkedin_extension_ledger"]["filename"] == "runtime.db"
+
+
+def test_calendar_attribution_uses_description_for_operations_and_delivery_roles(
+    tmp_path: Path,
+) -> None:
+    calendar = tmp_path / "calendar.ics"
+    database = tmp_path / "jobs.db"
+    calendar.write_text(
+        """BEGIN:VCALENDAR
+BEGIN:VEVENT
+DTSTART:20260820T100000
+SUMMARY:Your virtual interview at Moody's
+DESCRIPTION:Job Title: Delivery Manager (14409)
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20260821T100000
+SUMMARY:Rafael and Morgan Ashe
+DESCRIPTION:Autonomous Vehicle Operator phone interview with Zoox
+END:VEVENT
+END:VCALENDAR
+""",
+        encoding="utf-8",
+    )
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE jobs (company TEXT)")
+        connection.executemany("INSERT INTO jobs VALUES (?)", [("Moody's",), ("Zoox",)])
+
+    result = _calendar_attribution(calendar, database, date(2026, 8, 22))
+
+    roles = {row["role_family"] for row in result["by_role"]}
+    assert {"Delivery Management", "Fleet / Field Operations"} <= roles
+    assert result["event_count"] == 2

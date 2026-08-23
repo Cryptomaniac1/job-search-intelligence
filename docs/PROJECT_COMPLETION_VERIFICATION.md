@@ -456,6 +456,33 @@ records:
 5. Re-run conversion and period analytics after reviewed linkage and publish the linked numerator,
    eligible denominator, and unresolved-evidence count together.
 
+## Current execution plan — 2026-08-22
+
+Version 1 is released with documented exceptions. The work below is the minimum, evidence-first
+plan for making its production analytics reliably useful. It deliberately avoids a new platform
+rewrite, an LLM classifier, and additional email-provider work until the dashboard's source
+selection and linkage quality are stable.
+
+| Sprint | Objective | Scope and deliverables | Completion evidence | Current progress |
+|---|---|---|---|---|
+| **12.4 — Analytics evidence closeout** | Make the production dashboard reproduce the correct source-specific application activity. | Use the reconciled runtime LinkedIn Applied ledger for July/August 2026; retain email confirmations as separate evidence; expose deterministic role-attributed resume submissions; include calendar-description evidence for Delivery and Operations interviews; document snapshot rebuild rules. | July and August application rows show the runtime ledger values, not a stale external ledger; snapshot generation is read-only; targeted analytics/ledger tests, Ruff, and Black pass; live DB integrity remains clean. | **Implementation complete.** Runtime evidence establishes 188 dated LinkedIn applications in July and 162 in August through Aug 22. The prior stale external ledger had only 22 July and zero August records and is now rejected when the reconciled runtime ledger has stronger coverage. The approved `ibuildanapp@gmail.com` import and role/calendar attribution are complete. |
+| **13 — Evidence linkage and data-quality review** | Turn correct evidence volumes into defensible recruiter, company, role, and conversion metrics. | Deterministic review queue for unlinked responses/interviews/rejections; reversible company aliases; reviewable job/date links; coverage and confidence indicators; aggregate drill-down pages. No destructive updates, no fabricated links, no LLM dependency. | Every changed link has provenance and a reason; ambiguous records remain unresolved; conversion tables publish numerator, eligible denominator, and excluded/unlinked evidence; full regression suite passes. | **In progress.** The first deliverable is a read-only `/analytics/unlinked-evidence` queue that exposes immutable identity, classification, confidence, provider/account provenance, timestamp, and deterministic rule signals—never message bodies, subjects, senders, or inferred links. |
+| **14 — Production operating loop** | Make the product useful week to week after linkage quality is proven. | Bounded scheduled/manual sync runbooks, sync-health dashboard, application/recruiter follow-up queue, and source-coverage alerts. Keep Gmail/Hotmail/Yahoo accounts separate and preserve all immutable evidence. | A controlled repeat sync is idempotent; no mailbox mutation; dashboard shows coverage/checkpoint age and actionable follow-ups; release verification is updated. | **Planned.** Provider transports and production credentials are implemented; operational scheduling and actionable review UX are not yet complete. |
+| **Version 2 — Intelligence extensions** | Add optional AI assistance only on top of the deterministic evidence layer. | Review-assisted classification/linking suggestions, follow-up drafting, semantic search, and deeper interview/recruiter intelligence. | Evaluation corpus, human review controls, transparent source citations, and no replacement of deterministic records. | **Deferred.** It is not required for the current product release. |
+
+### Current deliverables scorecard
+
+| Deliverable | Status | Notes |
+|---|---|---|
+| Three-provider email evidence and repeat-safe import | Complete | Gmail, Hotmail, and Yahoo transports, provider-scoped identities, immutable provenance, and production checkpoints exist. |
+| Deterministic classification, Recruiter CRM, and Interview Pipeline | Complete | Versioned classifications, explainable rules, recruiter/company links, interviews, and interview-event provenance are implemented. |
+| Version 1 application, company, offer, resume, and job-description product flow | Complete with documented exceptions | Local workflows and migration coverage exist; thread reconstruction, attachment bodies, and automated scoring remain deferred. |
+| Production analytics foundation | Complete with active correction | Evidence-separated monthly tables, calendar review, account mapping, and LinkedIn-ledger reconciliation exist. Sprint 12.4 is correcting source selection and role/calendar attribution before code completion. |
+| Correct July/August 2026 LinkedIn application source | Verified | Runtime reconciled ledger: 188 in July; 162 through Aug 22. Old external V2 file is stale and must not override it. |
+| Role-attributed resume submissions | Complete, coverage-limited | Deterministic specific-role evidence is reported separately from unresolved confirmations; unknown roles are not guessed. |
+| Defensible conversion analytics | Pending Sprint 13 | Raw evidence exists, but unlinked outcomes and company/role aliases still need a reviewable linkage workflow. |
+| AI recommendations, semantic search, live scheduling automation | Deferred | Future work after evidence linkage is stable. |
+
 ### Sprint 12.3 fast-release gate
 
 Sprint 12.3 is the final production-data correction pass for Version 1. It completes the three

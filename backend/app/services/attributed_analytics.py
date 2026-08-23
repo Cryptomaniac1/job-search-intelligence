@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree
 
+from .application_attribution import infer_application_role_family
 from .calendar_analytics import EXCLUSION_PATTERN, INTERVIEW_PATTERN, _events, _start, _text
 
 SNAPSHOT_VERSION = "attributed-analytics-v1"
@@ -34,6 +35,9 @@ STAGE_PATTERNS = {
     ),
 }
 ROLE_PATTERNS = {
+    "Fleet / Field Operations": re.compile(
+        r"\b(?:vehicle operator|fleet operations?|field operations?|fleet management)\b", re.I
+    ),
     "Product Management": re.compile(
         r"\b(product manager|product management|product growth)\b", re.I
     ),
@@ -300,6 +304,8 @@ def _matched_company(summary: str, companies: list[str]) -> str | None:
             return candidate
     normalized = summary.casefold()
     for company in companies:
+        if not _contains_company_name(normalized, company):
+            continue
         company_pattern = re.escape(company.casefold())
         contextual = (
             rf"(?<!\w){company_pattern}(?!\w).{{0,35}}\b(interview|screen|recruiter call)\b|"
@@ -311,6 +317,20 @@ def _matched_company(summary: str, companies: list[str]) -> str | None:
     return None
 
 
+def _contains_company_name(text: str, company: str) -> bool:
+    """Match a company as a bounded text token before compiling contextual regexes."""
+    candidate = company.casefold()
+    offset = text.find(candidate)
+    while offset >= 0:
+        end = offset + len(candidate)
+        before = text[offset - 1] if offset else ""
+        after = text[end] if end < len(text) else ""
+        if not (before.isalnum() or after.isalnum()):
+            return True
+        offset = text.find(candidate, offset + 1)
+    return False
+
+
 def _normalize_company_candidate(value: str) -> str:
     candidate = re.sub(r"\b(?:inc\.?|interview)\b.*$", "", value, flags=re.I)
     candidate = re.sub(r"\s+(?:teams|gms)$", "", candidate, flags=re.I)
@@ -318,6 +338,9 @@ def _normalize_company_candidate(value: str) -> str:
 
 
 def _role_family(summary: str) -> str:
+    specific_role = infer_application_role_family(summary)
+    if specific_role:
+        return specific_role
     for family, pattern in ROLE_PATTERNS.items():
         if pattern.search(summary):
             return family
@@ -342,19 +365,20 @@ def _calendar_attribution(path: Path, database_path: Path, through_date: date) -
     for event in _events(path):
         started_at = _start(event, "America/Los_Angeles")
         summary = _text(event, "SUMMARY").strip()
+        evidence = f"{summary}\n{_text(event, 'DESCRIPTION').strip()}"
         if not started_at or not (date(2024, 7, 1) <= started_at.date() <= through_date):
             continue
         if _text(event, "STATUS").upper() == "CANCELLED":
             continue
-        if EXCLUSION_PATTERN.search(summary) or not INTERVIEW_PATTERN.search(summary):
+        if EXCLUSION_PATTERN.search(evidence) or not INTERVIEW_PATTERN.search(evidence):
             continue
         key = (started_at, re.sub(r"\s+", " ", summary.casefold()))
         if key in seen:
             continue
         seen.add(key)
-        stage = _stage(summary)
-        company = _matched_company(summary, companies) or "Unattributed"
-        role = _role_family(summary)
+        stage = _stage(evidence)
+        company = _matched_company(evidence, companies) or "Unattributed"
+        role = _role_family(evidence)
         monthly[started_at.strftime("%Y-%m")] += 1
         event_dates.append(started_at.date())
         by_company[company][stage] += 1
@@ -430,6 +454,10 @@ def _email_evidence(database_path: Path) -> dict[str, Any]:
                 "unique_application_confirmation_count": 0,
                 "application_confirmations_monthly": [],
                 "application_confirmations_daily": [],
+                "role_attributed_resume_submission_count": 0,
+                "unresolved_resume_submission_count": 0,
+                "resume_submissions_by_role": [],
+                "resume_submissions_monthly_by_role": [],
                 "observed_outcomes_monthly": [],
                 "linked_outcomes_monthly": [],
                 "unlinked_outcome_count": 0,
@@ -547,9 +575,12 @@ def _email_evidence(database_path: Path) -> dict[str, Any]:
         if _valid_company(linked_company):
             company_counts[linked_company] += 1
             company_attributed += 1
-        role = str(row["role_family"] or "").strip() or default_role
+        role = str(row["role_family"] or "").strip()
+        role = role or infer_application_role_family(str(row["title"] or "")) or default_role
         if role != "Unmapped":
             role_counts[role] += 1
+        if classification == "APPLICATION_CONFIRMATION" and row["job_id"] is not None:
+            application_confirmations[identity]["role_family"] = role
     return {
         "message_count": len(rows) + len(mbox_rows),
         "imap_message_count": len(rows),
@@ -562,6 +593,16 @@ def _email_evidence(database_path: Path) -> dict[str, Any]:
         "unique_application_confirmation_count": len(application_confirmations),
         "application_confirmations_monthly": _confirmation_monthly(application_confirmations),
         "application_confirmations_daily": _confirmation_daily(application_confirmations),
+        "role_attributed_resume_submission_count": sum(
+            bool(evidence.get("role_family")) for evidence in application_confirmations.values()
+        ),
+        "unresolved_resume_submission_count": sum(
+            not bool(evidence.get("role_family")) for evidence in application_confirmations.values()
+        ),
+        "resume_submissions_by_role": _confirmation_by_role(application_confirmations),
+        "resume_submissions_monthly_by_role": _confirmation_monthly_by_role(
+            application_confirmations
+        ),
         "observed_outcomes_monthly": _observed_outcome_monthly(observed_outcomes),
         "linked_outcomes_monthly": _outcome_monthly(linked_outcomes),
         "unlinked_outcome_count": unlinked_outcomes,
@@ -639,6 +680,36 @@ def _confirmation_daily(confirmations: dict[str, dict[str, str]]) -> list[dict[s
     return [
         {"date": occurred_on, "unique_applications": count}
         for occurred_on, count in sorted(daily.items())
+    ]
+
+
+def _confirmation_by_role(confirmations: dict[str, dict[str, str]]) -> list[dict[str, Any]]:
+    roles: Counter[str] = Counter()
+    for evidence in confirmations.values():
+        role = evidence.get("role_family", "")
+        if role:
+            roles[role] += 1
+    return [
+        {"role_family": role, "confirmed_resume_submissions": count}
+        for role, count in roles.most_common()
+    ]
+
+
+def _confirmation_monthly_by_role(
+    confirmations: dict[str, dict[str, str]],
+) -> list[dict[str, Any]]:
+    monthly: Counter[tuple[str, str]] = Counter()
+    for evidence in confirmations.values():
+        role = evidence.get("role_family", "")
+        if role:
+            monthly[(evidence["period"], role)] += 1
+    return [
+        {
+            "period": period,
+            "role_family": role,
+            "confirmed_resume_submissions": count,
+        }
+        for (period, role), count in sorted(monthly.items(), reverse=True)
     ]
 
 
@@ -826,7 +897,7 @@ def _company_from_text(text: str, companies: list[str]) -> str:
         if not _valid_company(company):
             continue
         normalized = company.casefold()
-        if normalized not in folded:
+        if not _contains_company_name(folded, company):
             continue
         token = re.escape(normalized)
         if re.search(
@@ -870,8 +941,13 @@ def build_attributed_snapshot(
     """Create an aggregate-only snapshot; source message/event text is never emitted."""
     application_activity = _plan_activity(plan_path)
     email_evidence = _email_evidence(database_path)
-    ledger_path = linkedin_submission_ledger_path or database_path
-    extension_activity = _linkedin_extension_activity(ledger_path)
+    ledger_path = database_path
+    extension_activity = _linkedin_extension_activity(database_path)
+    if linkedin_submission_ledger_path and linkedin_submission_ledger_path != database_path:
+        external_activity = _linkedin_extension_activity(linkedin_submission_ledger_path)
+        if external_activity["submission_count"] > extension_activity["submission_count"]:
+            ledger_path = linkedin_submission_ledger_path
+            extension_activity = external_activity
     calendar = _calendar_attribution(calendar_path, database_path, through_date)
     application_activity["combined_monthly"] = _combined_application_activity(
         application_activity, email_evidence, extension_activity, through_date

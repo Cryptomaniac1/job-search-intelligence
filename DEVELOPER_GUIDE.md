@@ -506,7 +506,6 @@ backend/.venv/bin/python scripts/build_attributed_analytics.py \
   --funnel-analysis "/absolute/path/Job Search Analytics.docx" \
   --calendar /absolute/path/Solovat@gmail.com.ics \
   --database data/jobs.db \
-  --linkedin-submission-ledger /absolute/path/legacy-linkedin/jobs.db \
   --through-date 2026-08-08 \
   --output data/attributed_analytics.json
 ```
@@ -516,8 +515,11 @@ The source XLSX, DOCX, ICS, mailbox content, and credentials must remain outside
 The builder is read-only with respect to `data/jobs.db`.
 
 When a legacy LinkedIn scanner database is available, first reconcile its `source=linkedin`,
-`status=applied` records with the preservation-first helper, then supply that database to the
-snapshot builder. The ledger's original scan time is recorded as the legacy Applied date. Its
+`status=applied` records with the preservation-first helper. Build the snapshot from the runtime
+database afterward, so the reconciled ledger—not a stale external copy—drives its recorded
+months. If an external ledger is explicitly supplied, the builder selects it only when it contains
+more dated Applied evidence than the runtime ledger. The ledger's original scan time is recorded
+as the legacy Applied date. Its
 partial first calendar month remains email- or plan-covered; later ledger months are direct
 submission coverage.
 
