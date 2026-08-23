@@ -140,6 +140,8 @@ def _review_item(row: sqlite3.Row) -> dict[str, Any]:
         reasons = json.loads(str(row["reason_json"] or "{}"))
     except json.JSONDecodeError:
         reasons = {}
+    if not isinstance(reasons, dict):
+        reasons = {}
     signals = reasons.get("matched_signals") or reasons.get("reasons") or []
     if not isinstance(signals, list):
         signals = []
