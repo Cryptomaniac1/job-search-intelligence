@@ -30,3 +30,4 @@ code{background:#eef2f6;padding:2px 6px;border-radius:4px}
 .recruiter-detail{margin-top:16px}.recruiter-detail a{color:#0a66c2}
 .warning{background:#fff7e6;border-left:4px solid #d97706;padding:10px 12px;color:#7c2d12}
 .interview-detail{margin-top:16px}.interview-detail a{color:#0a66c2}.event-timeline li{margin-bottom:14px}.event-timeline pre{white-space:pre-wrap;background:#f8fafb;padding:10px;border-radius:8px;font-size:12px}
+#reviewView input{width:100%;min-width:110px}.review-link-button:disabled{opacity:.6;cursor:wait}

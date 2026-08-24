@@ -8,7 +8,7 @@ from backend.app.services.evidence_review import list_unlinked_evidence
 from fastapi.testclient import TestClient
 
 
-def test_unlinked_evidence_queue_returns_provenance_without_message_content(tmp_path: Path) -> None:
+def test_unlinked_evidence_queue_returns_local_review_metadata_without_body(tmp_path: Path) -> None:
     database = tmp_path / "review.db"
     with sqlite3.connect(database) as connection:
         connection.executescript(
@@ -52,6 +52,9 @@ def test_unlinked_evidence_queue_returns_provenance_without_message_content(tmp_
     result = list_unlinked_evidence(database)
 
     assert result["total_unlinked"] == 1
+    assert result["context_available"] == 1
+    assert result["context_unavailable"] == 0
+    assert result["actionable_only"] is False
     assert result["items"] == [
         {
             "message_identity": "v1:review",
@@ -61,11 +64,49 @@ def test_unlinked_evidence_queue_returns_provenance_without_message_content(tmp_
             "provider": "gmail",
             "account_namespace": "account@example.com",
             "occurred_at": "2026-08-22T09:00:00",
+            "subject": "Private subject",
+            "sender": "sender@example.com",
             "matched_signals": ["subject=interview"],
         }
     ]
-    assert "Private subject" not in json.dumps(result)
     assert "Private message body" not in json.dumps(result)
+
+    actionable = list_unlinked_evidence(database, actionable_only=True)
+
+    assert actionable["actionable_only"] is True
+    assert actionable["context_available"] == 1
+    assert actionable["returned"] == 1
+
+
+def test_actionable_queue_excludes_records_without_retained_review_context(tmp_path: Path) -> None:
+    database = tmp_path / "review.db"
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE email_classifications (
+                message_identity TEXT, job_id INTEGER, classification TEXT, confidence REAL,
+                classifier_version TEXT, reason_json TEXT, created_at TEXT
+            );
+            CREATE TABLE imported_messages (
+                stable_message_identity TEXT, provider TEXT, source_import_id INTEGER,
+                imported_at TEXT
+            );
+            CREATE TABLE email_imports (id INTEGER, mailbox_name TEXT);
+            CREATE TABLE imap_message_metadata (
+                message_identity TEXT, provider TEXT, account_namespace TEXT,
+                imap_internal_date TEXT, received_at TEXT, subject TEXT, sender TEXT
+            );
+            INSERT INTO email_classifications VALUES
+                ('v1:old', NULL, 'REJECTION', 0.99, 'v1', '[]', '2026-08-22');
+            """
+        )
+
+    result = list_unlinked_evidence(database, actionable_only=True)
+
+    assert result["total_unlinked"] == 1
+    assert result["context_available"] == 0
+    assert result["context_unavailable"] == 1
+    assert result["items"] == []
 
 
 def test_unlinked_evidence_api_is_read_only(isolated_app: tuple[TestClient, Path]) -> None:
@@ -74,7 +115,29 @@ def test_unlinked_evidence_api_is_read_only(isolated_app: tuple[TestClient, Path
     response = client.get("/analytics/unlinked-evidence")
 
     assert response.status_code == 200
-    assert response.json() == {"total_unlinked": 0, "returned": 0, "items": []}
+    assert response.json() == {
+        "total_unlinked": 0,
+        "context_available": 0,
+        "context_unavailable": 0,
+        "actionable_only": False,
+        "returned": 0,
+        "items": [],
+    }
+
+
+def test_dashboard_exposes_content_free_review_queue_and_safe_interview_view() -> None:
+    root = Path(__file__).resolve().parents[1]
+    page = (root / "backend" / "static" / "index.html").read_text()
+    script = (root / "backend" / "static" / "app.js").read_text()
+
+    assert 'data-tab="review"' in page
+    assert "Evidence Review Queue" in page
+    assert "Scheduled records (recommended)" in page
+    assert "Unscheduled evidence" in page
+    assert "/static/app.js?v=review-queue-2" in page
+    assert "actionable_only=true" in script
+    assert "fetch('/analytics/evidence-links'" in script
+    assert "safeInterviewRole" in script
 
 
 def test_unlinked_evidence_tolerates_legacy_list_reason_json(tmp_path: Path) -> None:
@@ -94,7 +157,7 @@ def test_unlinked_evidence_tolerates_legacy_list_reason_json(tmp_path: Path) -> 
             CREATE TABLE email_imports (id INTEGER, mailbox_name TEXT);
             CREATE TABLE imap_message_metadata (
                 message_identity TEXT, provider TEXT, account_namespace TEXT,
-                imap_internal_date TEXT, received_at TEXT
+                imap_internal_date TEXT, received_at TEXT, subject TEXT, sender TEXT
             );
             INSERT INTO email_classifications VALUES
                 ('v1:legacy', NULL, 'RECRUITER_REPLY', 0.9, 'v1',
@@ -105,6 +168,7 @@ def test_unlinked_evidence_tolerates_legacy_list_reason_json(tmp_path: Path) -> 
     result = list_unlinked_evidence(database)
 
     assert result["total_unlinked"] == 1
+    assert result["context_available"] == 0
     assert result["items"][0]["message_identity"] == "v1:legacy"
     assert result["items"][0]["matched_signals"] == []
 
@@ -125,7 +189,7 @@ def test_reviewed_link_is_additive_and_removes_only_that_item_from_queue(tmp_pat
             CREATE TABLE email_imports (id INTEGER, mailbox_name TEXT);
             CREATE TABLE imap_message_metadata (
                 message_identity TEXT, provider TEXT, account_namespace TEXT,
-                imap_internal_date TEXT, received_at TEXT
+                imap_internal_date TEXT, received_at TEXT, subject TEXT, sender TEXT
             );
             CREATE TABLE jobs (id INTEGER PRIMARY KEY);
             CREATE TABLE evidence_job_links (
@@ -153,7 +217,14 @@ def test_reviewed_link_is_additive_and_removes_only_that_item_from_queue(tmp_pat
     )
 
     assert created == {"message_identity": "v1:review", "job_id": 7, "link_method": "reviewed"}
-    assert list_unlinked_evidence(database) == {"total_unlinked": 0, "returned": 0, "items": []}
+    assert list_unlinked_evidence(database) == {
+        "total_unlinked": 0,
+        "context_available": 0,
+        "context_unavailable": 0,
+        "actionable_only": False,
+        "returned": 0,
+        "items": [],
+    }
     with sqlite3.connect(database) as connection:
         assert connection.execute("SELECT job_id FROM evidence_job_links").fetchone()[0] == 7
         assert connection.execute("SELECT job_id FROM email_classifications").fetchone()[0] is None

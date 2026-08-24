@@ -1,4 +1,4 @@
-"""Read-only review queue for outcome evidence without a deterministic job link."""
+"""Reviewer-facing outcome evidence queue without automatic job matching."""
 
 from __future__ import annotations
 
@@ -29,8 +29,15 @@ REVIEWABLE_CLASSIFICATIONS = (
 )
 
 
-def list_unlinked_evidence(database_path: Path, *, limit: int = 100) -> dict[str, Any]:
-    """Return provenance-only work items; never infer or persist a proposed link."""
+def list_unlinked_evidence(
+    database_path: Path, *, limit: int = 100, actionable_only: bool = False
+) -> dict[str, Any]:
+    """Return review work items without inferring or persisting a proposed link.
+
+    ``actionable_only`` limits the queue to messages with retained sender or subject metadata.
+    The dashboard uses it so a reviewer never has to guess from a timestamp alone. Message
+    bodies remain out of the API response.
+    """
     placeholders = ", ".join("?" for _ in REVIEWABLE_CLASSIFICATIONS)
     link_join = "LEFT JOIN evidence_job_links AS l ON l.message_identity = c.message_identity"
     with sqlite3.connect(database_path) as connection:
@@ -43,6 +50,8 @@ def list_unlinked_evidence(database_path: Path, *, limit: int = 100) -> dict[str
         reviewed_filter = ""
     else:
         reviewed_filter = "AND l.message_identity IS NULL"
+    context_expression = "(COALESCE(m.subject, '') <> '' OR COALESCE(m.sender, '') <> '')"
+    actionable_filter = f"AND {context_expression}" if actionable_only else ""
     query = f"""
         SELECT c.message_identity, c.classification, c.confidence, c.classifier_version,
                c.reason_json,
@@ -50,13 +59,16 @@ def list_unlinked_evidence(database_path: Path, *, limit: int = 100) -> dict[str
                COALESCE(m.account_namespace, e.mailbox_name, '') AS account_namespace,
                COALESCE(
                    m.imap_internal_date, m.received_at, i.imported_at, c.created_at
-               ) AS occurred_at
+               ) AS occurred_at,
+               COALESCE(m.subject, '') AS subject,
+               COALESCE(m.sender, '') AS sender
           FROM email_classifications AS c
           LEFT JOIN imported_messages AS i ON i.stable_message_identity = c.message_identity
           LEFT JOIN email_imports AS e ON e.id = i.source_import_id
           LEFT JOIN imap_message_metadata AS m ON m.message_identity = c.message_identity
           {link_join}
          WHERE c.job_id IS NULL AND c.classification IN ({placeholders}) {reviewed_filter}
+               {actionable_filter}
          ORDER BY occurred_at DESC, c.message_identity
          LIMIT ?
     """
@@ -75,8 +87,27 @@ def list_unlinked_evidence(database_path: Path, *, limit: int = 100) -> dict[str
                 f"WHERE c.job_id IS NULL AND c.classification IN ({placeholders})",
                 REVIEWABLE_CLASSIFICATIONS,
             ).fetchone()[0]
+        context_available = connection.execute(
+            f"SELECT COUNT(*) FROM email_classifications AS c "
+            "LEFT JOIN imap_message_metadata AS m ON m.message_identity = c.message_identity "
+            f"WHERE c.job_id IS NULL AND c.classification IN ({placeholders}) "
+            f"AND {context_expression}",
+            REVIEWABLE_CLASSIFICATIONS,
+        ).fetchone()[0]
+        if "evidence_job_links" in tables:
+            context_available -= connection.execute(
+                "SELECT COUNT(*) FROM evidence_job_links AS l "
+                "JOIN email_classifications AS c ON c.message_identity = l.message_identity "
+                "LEFT JOIN imap_message_metadata AS m ON m.message_identity = c.message_identity "
+                f"WHERE c.job_id IS NULL AND c.classification IN ({placeholders}) "
+                f"AND {context_expression}",
+                REVIEWABLE_CLASSIFICATIONS,
+            ).fetchone()[0]
     return {
         "total_unlinked": total,
+        "context_available": context_available,
+        "context_unavailable": total - context_available,
+        "actionable_only": actionable_only,
         "returned": len(rows),
         "items": [_review_item(row) for row in rows],
     }
@@ -135,7 +166,7 @@ def create_company_alias(
 
 
 def _review_item(row: sqlite3.Row) -> dict[str, Any]:
-    """Expose rule names only; raw subjects, senders, and bodies stay in immutable storage."""
+    """Expose local review metadata and rule names; never return a raw message body."""
     try:
         reasons = json.loads(str(row["reason_json"] or "{}"))
     except json.JSONDecodeError:
@@ -153,5 +184,7 @@ def _review_item(row: sqlite3.Row) -> dict[str, Any]:
         "provider": row["provider"],
         "account_namespace": row["account_namespace"],
         "occurred_at": row["occurred_at"],
+        "subject": row["subject"],
+        "sender": row["sender"],
         "matched_signals": [str(signal) for signal in signals[:10]],
     }

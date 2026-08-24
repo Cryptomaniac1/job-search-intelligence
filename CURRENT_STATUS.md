@@ -20,8 +20,9 @@ the product and architecture documents remain part of the roadmap unless explici
 - Preservation-first email-to-job merge behavior and imported-record deletion protection.
 - Read-only live-database preflight, SQLite-safe backup, copy-only migration rehearsal, rollback
   verification, and duplicate-candidate reporting.
-- Historical database at Alembic revision `20260808_0007`, externalized to ignored runtime path
-  `data/jobs.db` with canonical environment-variable overrides.
+- Historical database at Alembic revision `20260823_0008`, externalized to ignored runtime path
+  `data/jobs.db` with canonical environment-variable overrides. The additive reviewed-link and
+  company-alias tables are present and initially empty.
 - Deterministic, versioned, provider-agnostic email classification engine with explainable reasons
   and additive classification evidence persistence.
 - Approval-gated Sprint 5.5 live migration completed with preserved historical row counts and
@@ -74,9 +75,9 @@ the product and architecture documents remain part of the roadmap unless explici
   RecruiterRelationship, Note, and Interaction persistence; local correction APIs; company
   timelines; application/offer/resume/company/settings dashboard views; deterministic resume/job
   scoring; and repeatable temporary-database product and performance tests. The candidate
-  migration is `20260808_0007` and is applied to the runtime database. Sprint 13 adds the
-  un-applied, additive `20260823_0008` reviewed-link and company-alias migration; it must be
-  rehearsed and approval-gated before any live database use.
+  migration is `20260808_0007` and is applied to the runtime database. Sprint 13's additive
+  `20260823_0008` reviewed-link and company-alias migration was rehearsed, backed up, applied,
+  and validated without historical row changes.
 - Sprint 12 production closeout completed with 7,750 jobs, 10 import audit rows, 297 immutable
   imported messages/classifications/IMAP metadata rows, two recruiters, 12 interview events, and
   three provider checkpoints. Runtime integrity and foreign-key checks pass. The final verified
