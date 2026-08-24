@@ -67,6 +67,7 @@ def test_unlinked_evidence_queue_returns_local_review_metadata_without_body(tmp_
             "subject": "Private subject",
             "sender": "sender@example.com",
             "matched_signals": ["subject=interview"],
+            "candidates": [],
         }
     ]
     assert "Private message body" not in json.dumps(result)
@@ -109,6 +110,49 @@ def test_actionable_queue_excludes_records_without_retained_review_context(tmp_p
     assert result["items"] == []
 
 
+def test_review_queue_suggests_only_deterministic_job_candidates(tmp_path: Path) -> None:
+    database = tmp_path / "review.db"
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE jobs (id INTEGER PRIMARY KEY, company TEXT, title TEXT);
+            CREATE TABLE email_classifications (
+                message_identity TEXT, job_id INTEGER, classification TEXT, confidence REAL,
+                classifier_version TEXT, reason_json TEXT, created_at TEXT
+            );
+            CREATE TABLE imported_messages (
+                stable_message_identity TEXT, provider TEXT, source_import_id INTEGER,
+                imported_at TEXT
+            );
+            CREATE TABLE email_imports (id INTEGER, mailbox_name TEXT);
+            CREATE TABLE imap_message_metadata (
+                message_identity TEXT, provider TEXT, account_namespace TEXT,
+                imap_internal_date TEXT, received_at TEXT, subject TEXT, sender TEXT
+            );
+            INSERT INTO jobs VALUES (7, 'Acme', 'Product Manager');
+            INSERT INTO jobs VALUES (8, 'Other Company', 'Marketing Manager');
+            INSERT INTO email_classifications VALUES
+                ('v1:candidate', NULL, 'INTERVIEW_INVITATION', 0.99, 'v1', '{}', '2026-08-22');
+            INSERT INTO imap_message_metadata VALUES
+                ('v1:candidate', 'gmail', 'gmail', '2026-08-22', NULL,
+                 'Acme Product Manager interview invitation', 'recruiting@acme.com');
+            """
+        )
+
+    result = list_unlinked_evidence(database, actionable_only=True, include_candidates=True)
+
+    assert result["include_candidates"] is True
+    assert result["items"][0]["candidates"] == [
+        {
+            "id": 7,
+            "company": "Acme",
+            "title": "Product Manager",
+            "score": 94,
+            "reasons": ["company name in subject", "role terms in subject"],
+        }
+    ]
+
+
 def test_unlinked_evidence_api_is_read_only(isolated_app: tuple[TestClient, Path]) -> None:
     client, _ = isolated_app
 
@@ -120,6 +164,7 @@ def test_unlinked_evidence_api_is_read_only(isolated_app: tuple[TestClient, Path
         "context_available": 0,
         "context_unavailable": 0,
         "actionable_only": False,
+        "include_candidates": False,
         "returned": 0,
         "items": [],
     }
@@ -134,8 +179,10 @@ def test_dashboard_exposes_content_free_review_queue_and_safe_interview_view() -
     assert "Evidence Review Queue" in page
     assert "Scheduled records (recommended)" in page
     assert "Unscheduled evidence" in page
-    assert "/static/app.js?v=review-queue-2" in page
+    assert "/static/app.js?v=review-queue-3" in page
     assert "actionable_only=true" in script
+    assert "include_candidates=true" in script
+    assert "candidate-job-button" in script
     assert "fetch('/analytics/evidence-links'" in script
     assert "safeInterviewRole" in script
 
@@ -222,6 +269,7 @@ def test_reviewed_link_is_additive_and_removes_only_that_item_from_queue(tmp_pat
         "context_available": 0,
         "context_unavailable": 0,
         "actionable_only": False,
+        "include_candidates": False,
         "returned": 0,
         "items": [],
     }

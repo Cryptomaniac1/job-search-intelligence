@@ -194,6 +194,62 @@ def create_application(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
     return get_application(path, application_id)
 
 
+def record_linkedin_application(
+    path: Path, *, job_id: int, applied_at: str | None = None
+) -> dict[str, Any]:
+    """Record an explicit browser-extension submission once, without inferring history."""
+    _require_schema(path)
+    occurred_at = applied_at or _now()
+    with _connection(path, write=True) as connection:
+        job = connection.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+        if not job:
+            raise LookupError("Job not found")
+        existing = connection.execute(
+            "SELECT id FROM applications WHERE job_id=?", (job_id,)
+        ).fetchone()
+        if existing:
+            result = _application_row(connection, int(existing["id"]))
+            if result is None:
+                raise RuntimeError("Recorded application could not be read")
+            return {**result, "created": False}
+
+        company_id = _company_id(connection, str(job["company"]))
+        application_cursor = connection.execute(
+            """INSERT INTO applications
+               (job_id, company_id, status, applied_at, source, match_score, notes,
+                created_at, updated_at)
+               VALUES (?, ?, 'applied', ?, 'linkedin_extension', 0, '', ?, ?)""",
+            (job_id, company_id, occurred_at, occurred_at, occurred_at),
+        )
+        application_id = _lastrowid(application_cursor)
+        connection.execute(
+            """UPDATE jobs
+                   SET status='applied',
+                       applied_at=COALESCE(applied_at, ?),
+                       application_source=CASE
+                           WHEN COALESCE(application_source, '')='' THEN 'linkedin_extension'
+                           ELSE application_source
+                       END
+                 WHERE id=?""",
+            (occurred_at, job_id),
+        )
+        _add_interaction(
+            connection,
+            {
+                "company_id": company_id,
+                "application_id": application_id,
+                "job_id": job_id,
+                "interaction_type": "application",
+                "occurred_at": occurred_at,
+                "summary": f"LinkedIn application recorded: {job['title']}",
+            },
+        )
+        result = _application_row(connection, application_id)
+    if result is None:
+        raise RuntimeError("Recorded application could not be read")
+    return {**result, "created": True}
+
+
 def list_applications(path: Path) -> list[dict[str, Any]]:
     if not schema_ready(path):
         return []
@@ -208,16 +264,20 @@ def list_applications(path: Path) -> list[dict[str, Any]]:
         )
 
 
+def _application_row(connection: sqlite3.Connection, application_id: int) -> dict[str, Any] | None:
+    return _row(
+        connection.execute(
+            """SELECT a.*, j.title job_title, j.company company, r.name resume_name
+               FROM applications a JOIN jobs j ON j.id=a.job_id
+               LEFT JOIN resumes r ON r.id=a.resume_id WHERE a.id=?""",
+            (application_id,),
+        )
+    )
+
+
 def get_application(path: Path, application_id: int) -> dict[str, Any]:
     with _connection(path) as connection:
-        result = _row(
-            connection.execute(
-                """SELECT a.*, j.title job_title, j.company company, r.name resume_name
-                   FROM applications a JOIN jobs j ON j.id=a.job_id
-                   LEFT JOIN resumes r ON r.id=a.resume_id WHERE a.id=?""",
-                (application_id,),
-            )
-        )
+        result = _application_row(connection, application_id)
     if not result:
         raise LookupError("Application not found")
     return result

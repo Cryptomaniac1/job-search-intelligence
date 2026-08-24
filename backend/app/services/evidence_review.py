@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -28,9 +29,86 @@ REVIEWABLE_CLASSIFICATIONS = (
     "POSITION_CLOSED",
 )
 
+_COMMON_TERMS = frozenset(
+    {
+        "and",
+        "at",
+        "for",
+        "from",
+        "in",
+        "job",
+        "of",
+        "or",
+        "role",
+        "the",
+        "to",
+        "with",
+    }
+)
+
+
+def _terms(value: str) -> set[str]:
+    terms = re.findall(r"[a-z0-9]{3,}", value.casefold())
+    return {term for term in terms if term not in _COMMON_TERMS}
+
+
+def _candidate_catalog(rows: Iterable[sqlite3.Row]) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": row["id"],
+            "company": row["company"] or "Unknown company",
+            "title": row["title"] or "Unknown role",
+            "company_terms": _terms(row["company"] or ""),
+            "title_terms": _terms(row["title"] or ""),
+        }
+        for row in rows
+    ]
+
+
+def _candidate_score(
+    candidate: dict[str, Any], subject_terms: set[str], sender_terms: set[str]
+) -> tuple[int, list[str]]:
+    company_terms = candidate["company_terms"]
+    title_overlap = candidate["title_terms"] & subject_terms
+    reasons: list[str] = []
+    score = 0
+    if company_terms and company_terms <= subject_terms:
+        score += 70
+        reasons.append("company name in subject")
+    elif company_terms & sender_terms:
+        score += 50
+        reasons.append("company-like sender domain")
+    if len(title_overlap) >= 2:
+        score += min(30, len(title_overlap) * 12)
+        reasons.append("role terms in subject")
+    return score, reasons
+
+
+def _candidate_jobs(
+    subject: str, sender: str, catalog: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    subject_terms = _terms(subject)
+    sender_terms = _terms(sender)
+    matches = []
+    for candidate in catalog:
+        score, reasons = _candidate_score(candidate, subject_terms, sender_terms)
+        # A sender-domain-only overlap can be useful context, but is not strong enough to
+        # preselect a job for review. A candidate must also have direct company or role evidence.
+        if score >= 70 and reasons:
+            matches.append({**candidate, "score": score, "reasons": reasons})
+    matches.sort(key=lambda item: (-item["score"], item["company"], item["title"], item["id"]))
+    return [
+        {key: item[key] for key in ("id", "company", "title", "score", "reasons")}
+        for item in matches[:3]
+    ]
+
 
 def list_unlinked_evidence(
-    database_path: Path, *, limit: int = 100, actionable_only: bool = False
+    database_path: Path,
+    *,
+    limit: int = 100,
+    actionable_only: bool = False,
+    include_candidates: bool = False,
 ) -> dict[str, Any]:
     """Return review work items without inferring or persisting a proposed link.
 
@@ -75,6 +153,13 @@ def list_unlinked_evidence(
     with sqlite3.connect(database_path) as connection:
         connection.row_factory = sqlite3.Row
         rows = connection.execute(query, (*REVIEWABLE_CLASSIFICATIONS, limit)).fetchall()
+        catalog = (
+            _candidate_catalog(
+                connection.execute("SELECT id, company, title FROM jobs ORDER BY id").fetchall()
+            )
+            if include_candidates
+            else []
+        )
         total = connection.execute(
             f"SELECT COUNT(*) FROM email_classifications "
             f"WHERE job_id IS NULL AND classification IN ({placeholders})",
@@ -108,8 +193,9 @@ def list_unlinked_evidence(
         "context_available": context_available,
         "context_unavailable": total - context_available,
         "actionable_only": actionable_only,
+        "include_candidates": include_candidates,
         "returned": len(rows),
-        "items": [_review_item(row) for row in rows],
+        "items": [_review_item(row, catalog) for row in rows],
     }
 
 
@@ -165,7 +251,7 @@ def create_company_alias(
     return {"alias_name": alias, "canonical_name": canonical, "normalized_alias": normalized}
 
 
-def _review_item(row: sqlite3.Row) -> dict[str, Any]:
+def _review_item(row: sqlite3.Row, catalog: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Expose local review metadata and rule names; never return a raw message body."""
     try:
         reasons = json.loads(str(row["reason_json"] or "{}"))
@@ -187,4 +273,5 @@ def _review_item(row: sqlite3.Row) -> dict[str, Any]:
         "subject": row["subject"],
         "sender": row["sender"],
         "matched_signals": [str(signal) for signal in signals[:10]],
+        "candidates": _candidate_jobs(row["subject"], row["sender"], catalog or []),
     }

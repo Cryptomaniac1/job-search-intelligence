@@ -29,6 +29,10 @@ class ApplicationUpdate(BaseModel):
     notes: str | None = None
 
 
+class RecordApplicationInput(BaseModel):
+    applied_at: datetime | None = None
+
+
 class ResumeInput(BaseModel):
     name: str = Field(min_length=1, max_length=300)
     version: str = Field(min_length=1, max_length=100)

@@ -82,6 +82,7 @@ try:
         list_notes,
         list_offers,
         list_resumes,
+        record_linkedin_application,
         schema_ready,
         update_application,
         update_offer,
@@ -98,6 +99,7 @@ try:
         NoteInput,
         OfferInput,
         OfferUpdate,
+        RecordApplicationInput,
         RecruiterRelationshipInput,
         ResumeInput,
     )
@@ -147,6 +149,7 @@ except ModuleNotFoundError:  # Supports the existing `cd backend && uvicorn main
         list_notes,
         list_offers,
         list_resumes,
+        record_linkedin_application,
         schema_ready,
         update_application,
         update_offer,
@@ -163,6 +166,7 @@ except ModuleNotFoundError:  # Supports the existing `cd backend && uvicorn main
         NoteInput,
         OfferInput,
         OfferUpdate,
+        RecordApplicationInput,
         RecruiterRelationshipInput,
         ResumeInput,
     )
@@ -1956,6 +1960,17 @@ def update_status(job_id: int, payload: StatusUpdate):
         session.refresh(job)
         return serialize(job)
 
+
+@app.post("/jobs/{job_id}/record-application")
+def record_application(job_id: int, payload: RecordApplicationInput):
+    """Record a user-confirmed LinkedIn submission exactly once."""
+    return _domain_write(
+        record_linkedin_application,
+        job_id=job_id,
+        applied_at=payload.applied_at.isoformat() if payload.applied_at else None,
+    )
+
+
 @app.delete("/jobs/{job_id}")
 def delete_job(job_id: int):
     with Session(engine) as session:
@@ -2813,10 +2828,17 @@ def analytics_attributed():
 
 @app.get('/analytics/unlinked-evidence')
 def analytics_unlinked_evidence(
-    limit: int = Query(default=100, ge=1, le=500), actionable_only: bool = False
+    limit: int = Query(default=100, ge=1, le=500),
+    actionable_only: bool = False,
+    include_candidates: bool = False,
 ):
     """Provide a read-only worklist for deterministic linkage review."""
-    return list_unlinked_evidence(DB_PATH, limit=limit, actionable_only=actionable_only)
+    return list_unlinked_evidence(
+        DB_PATH,
+        limit=limit,
+        actionable_only=actionable_only,
+        include_candidates=include_candidates,
+    )
 
 
 @app.post('/analytics/evidence-links', status_code=201)

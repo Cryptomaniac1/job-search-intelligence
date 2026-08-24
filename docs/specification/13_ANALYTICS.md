@@ -68,6 +68,10 @@ attributed snapshot. The dashboard monthly table is the primary operational view
 - reply and interview-conversion rates using combined unique applications as the denominator;
 - an explicit unlinked-evidence count for outcomes excluded from conversion rates.
 
+The Review queue may show up to three deterministic job candidates from retained sender/subject
+metadata plus existing company/title fields. A candidate is only a reviewer aid: it never creates
+an evidence link automatically, and raw message bodies remain unavailable.
+
 Email outcomes are deduplicated by linked job and outcome group. Repeated messages remain immutable
 evidence but do not inflate a conversion. Calendar interview rounds stay separate because several
 rounds can belong to one application. A missing deterministic job link never becomes a fabricated

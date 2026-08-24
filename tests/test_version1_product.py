@@ -120,6 +120,60 @@ def test_version1_is_additive_and_repeat_safe(isolated_app: tuple[TestClient, Pa
         assert connection.execute("SELECT COUNT(*) FROM applications").fetchone() == (1,)
 
 
+def test_explicit_linkedin_application_recording_is_repeat_safe(
+    isolated_app: tuple[TestClient, Path],
+) -> None:
+    client, database = isolated_app
+    job_id = _job(client)
+
+    first = client.post(
+        f"/jobs/{job_id}/record-application", json={"applied_at": "2026-08-23T10:00:00"}
+    )
+    repeated = client.post(
+        f"/jobs/{job_id}/record-application", json={"applied_at": "2026-08-23T10:01:00"}
+    )
+
+    assert first.status_code == 200
+    assert first.json()["created"] is True
+    assert first.json()["source"] == "linkedin_extension"
+    assert repeated.status_code == 200
+    assert repeated.json()["created"] is False
+    assert repeated.json()["id"] == first.json()["id"]
+    with sqlite3.connect(database) as connection:
+        job = connection.execute(
+            "SELECT status, applied_at, application_source FROM jobs WHERE id=?", (job_id,)
+        ).fetchone()
+        assert job == ("applied", "2026-08-23T10:00:00", "linkedin_extension")
+        assert connection.execute("SELECT COUNT(*) FROM applications").fetchone() == (1,)
+
+
+def test_explicit_linkedin_recording_respects_an_existing_application(
+    isolated_app: tuple[TestClient, Path],
+) -> None:
+    client, _ = isolated_app
+    job_id = _job(client)
+    existing = client.post("/applications", json={"job_id": job_id, "status": "applied"})
+
+    recorded = client.post(f"/jobs/{job_id}/record-application", json={})
+
+    assert existing.status_code == 201
+    assert recorded.status_code == 200
+    assert recorded.json()["created"] is False
+    assert recorded.json()["id"] == existing.json()["id"]
+
+
+def test_extension_only_records_applications_after_an_explicit_user_action() -> None:
+    root = Path(__file__).resolve().parents[1]
+    popup = (root / "extension" / "popup.html").read_text()
+    script = (root / "extension" / "popup.js").read_text()
+    content = (root / "extension" / "content.js").read_text()
+
+    assert "I applied — record selected job" in popup
+    assert "RECORD_SELECTED_APPLICATION" in script
+    assert "RECORD_SELECTED_APPLICATION" in content
+    assert "/record-application" in content
+
+
 def test_dashboard_and_api_performance_baseline(isolated_app: tuple[TestClient, Path]) -> None:
     client, _ = isolated_app
     started = time.perf_counter()

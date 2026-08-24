@@ -3,7 +3,7 @@ const $ = id => document.getElementById(id);
 
 async function getSettings() {
   return chrome.storage.sync.get({
-    backendUrl: "http://127.0.0.1:8002",
+    backendUrl: "http://127.0.0.1:8000",
     maxJobs: 20
   });
 }
@@ -56,6 +56,28 @@ $("start").onclick = async () => {
 $("stop").onclick = async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   chrome.tabs.sendMessage(tab.id, { type: "STOP_SCAN" });
+};
+
+$("recordApplication").onclick = async () => {
+  const settings = await saveSettings();
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  $("status").textContent = "Recording selected application…";
+  chrome.tabs.sendMessage(tab.id, {
+    type: "RECORD_SELECTED_APPLICATION",
+    backendUrl: settings.backendUrl
+  }, response => {
+    if (chrome.runtime.lastError) {
+      $("status").textContent = "Open a LinkedIn job page, then retry.";
+      return;
+    }
+    if (!response?.ok) {
+      $("status").textContent = response?.error || "Could not record the application.";
+      return;
+    }
+    $("status").textContent = response.created
+      ? "Application recorded."
+      : "This application was already recorded.";
+  });
 };
 
 $("dashboard").onclick = async () => {
