@@ -220,6 +220,15 @@
     return matching[0] || null;
   }
 
+  function selectedJobTitle() {
+    const headings = [...document.querySelectorAll("h1")].filter(element => {
+      const rect = element.getBoundingClientRect();
+      const text = normalize(element.innerText);
+      return rect.left >= window.innerWidth * 0.32 && rect.width > 0 && text.length >= 3;
+    });
+    return normalize(headings[0]?.innerText).replace(/\s+\(Verified job\)$/i, "");
+  }
+
   function rightPaneRoot(expectedTitle = null) {
     const titleElement = rightPaneTitleElement(expectedTitle);
 
@@ -373,6 +382,32 @@
     if (!response.ok) {
       throw new Error(`Save failed (${response.status})`);
     }
+    return response.json();
+  }
+
+  async function recordSelectedApplication(backendUrl) {
+    const jobId = currentJobId();
+    const title = selectedJobTitle();
+    if (!jobId || !title) {
+      throw new Error("Select an individual LinkedIn job before recording an application.");
+    }
+    const job = extractCurrentJob({
+      title,
+      company: "",
+      location: "",
+      salary: "",
+      posted: ""
+    });
+    const savedJob = await postJob(backendUrl, job);
+    const response = await fetch(`${backendUrl}/jobs/${savedJob.id}/record-application`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ applied_at: new Date().toISOString() })
+    });
+    if (!response.ok) {
+      throw new Error(`Application record failed (${response.status})`);
+    }
+    return response.json();
   }
 
   async function scan(backendUrl, maxJobs) {
@@ -511,6 +546,13 @@
     if (message?.type === "STOP_SCAN") {
       stopRequested = true;
       sendResponse({ ok: true });
+      return true;
+    }
+
+    if (message?.type === "RECORD_SELECTED_APPLICATION") {
+      recordSelectedApplication(message.backendUrl)
+        .then(result => sendResponse({ ok: true, created: result.created }))
+        .catch(error => sendResponse({ ok: false, error: error.message }));
       return true;
     }
   });

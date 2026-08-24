@@ -17,10 +17,15 @@ v1.7:
 - extracts applicant count only from that selected job
 - uses card metadata as a fallback for title, company, location, salary, and age
 
+v1.8:
+- adds **I applied — record selected job** for a job already selected in LinkedIn
+- records a user-confirmed submission once in the local application ledger
+- never infers an application from scanning, email, or a LinkedIn page view
+
 Install:
 1. Remove v1.6.
 2. Unzip this package.
 3. Load unpacked and select this folder.
 4. Reload LinkedIn search results.
-5. Start the backend on port 8002.
+5. Start the backend on the URL configured in the extension popup (normally port 8000).
 6. Run a new scan.

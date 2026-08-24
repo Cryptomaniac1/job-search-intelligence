@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Job Intelligence Scanner",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "Scans each LinkedIn result card and extracts applicant counts from the corresponding right-hand job details pane.",
   "permissions": [
     "storage",

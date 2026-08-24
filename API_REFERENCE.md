@@ -108,12 +108,18 @@ operator command; the existing read-only interview API and payload contracts are
   and last real business activity. Optional `limit` defaults to 50.
 - `GET /analytics/unlinked-evidence` — a read-only review queue for outcome evidence without a
   deterministic job link. `actionable_only=true` limits results to entries with retained local
-  sender or subject metadata; raw message bodies are never returned.
+  sender or subject metadata; `include_candidates=true` adds up to three deterministic job
+  candidates derived only from that metadata and existing job company/title fields. Candidates
+  never create a link; a reviewer must still select and justify one. Raw message bodies are never
+  returned.
 - `POST /analytics/evidence-links` — records a human-reviewed `{message_identity, job_id, reason}`
   link in a separate additive table. It does not change the original email, import, or classifier
   record. Requires migration `20260823_0008`.
 - `POST /analytics/company-aliases` — records a reversible reviewed `{alias_name, canonical_name,
   reason}` correction without rewriting source company values. Requires migration `20260823_0008`.
+- `POST /jobs/{job_id}/record-application` — records one explicit LinkedIn browser-extension
+  submission for an existing job. The action is repeat-safe, creates a first-class application,
+  and never infers a submission from a scan or an email.
 
 Sprint 12.2 replaces the former status-based prototype calculations. Application timelines never
 substitute `first_seen_at` for an application date. Downstream metrics count distinct linked jobs,
