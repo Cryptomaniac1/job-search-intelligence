@@ -286,7 +286,7 @@ def test_read_only_api_filters_upcoming_detail_and_dashboard(
     assert upcoming.status_code == 200 and len(upcoming.json()) == 1
     assert missing.status_code == 404
     assert 'id="interviewsView"' in dashboard
-    assert "No interview events have been imported yet." in dashboard
+    assert "No scheduled interview records are available." in dashboard
     assert "loadInterviews" in client.get("/static/app.js").text
 
 

@@ -123,6 +123,12 @@ Calendar interview review is additive evidence analysis. It must:
 - A reviewed link is stored separately from imported email and classifier evidence. It is included
   in outcome analytics only after a reviewer records a job ID and reason; unresolved evidence
   remains excluded from conversion rates.
+- The dashboard Review tab defaults to actionable records with retained local sender and subject
+  metadata, then accepts a reviewer-supplied job ID and reason. It never displays a message body.
+  Older classifications without retained review context remain preserved but are excluded from the
+  actionable queue rather than requiring a reviewer to guess a match.
+- The Interviews tab distinguishes scheduled interview records from unscheduled imported evidence.
+  It defaults to the scheduled view and avoids rendering body-like legacy job text as a role.
 - Company aliases are reversible display corrections. They do not replace raw company strings in
   historical email, imported-message, classification, or job records.
 - Company grouping is case-insensitive and preserves the most common display spelling.

@@ -2812,9 +2812,11 @@ def analytics_attributed():
 
 
 @app.get('/analytics/unlinked-evidence')
-def analytics_unlinked_evidence(limit: int = Query(default=100, ge=1, le=500)):
-    """Provide a safe, read-only worklist for deterministic linkage review."""
-    return list_unlinked_evidence(DB_PATH, limit=limit)
+def analytics_unlinked_evidence(
+    limit: int = Query(default=100, ge=1, le=500), actionable_only: bool = False
+):
+    """Provide a read-only worklist for deterministic linkage review."""
+    return list_unlinked_evidence(DB_PATH, limit=limit, actionable_only=actionable_only)
 
 
 @app.post('/analytics/evidence-links', status_code=201)
